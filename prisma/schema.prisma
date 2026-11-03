@@ -1,0 +1,436 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum CustomerStatus {
+  ACTIVE
+  ISOLATED
+  INACTIVE
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+}
+
+enum UserRole {
+  ADMIN
+  TECHNICIAN
+  FINANCE
+}
+
+enum DeviceCategory {
+  OLT
+  ODP
+  ONT
+  AP_OUTDOOR
+  ROUTER
+  SWITCH
+  CONVERTER
+}
+
+enum DeviceStatus {
+  IN_STOCK
+  DEPLOYED_HOME
+  DEPLOYED_HOTSPOT
+  DEPLOYED_INFRA
+  BROKEN
+  INACTIVE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum FinancialCategory {
+  // INCOME
+  VOUCHER_HOTSPOT
+  MONTHLY_BILLING
+  INSTALLATION_FEE
+  OTHER_INCOME
+
+  // EXPENSE
+  ISP_BANDWIDTH
+  ELECTRICITY_TOKEN
+  SALARY
+  MAINTENANCE
+  HARDWARE_PURCHASE
+  OTHER_EXPENSE
+}
+
+// -------------------------------------------------------------
+// MODULE 1 & 2: VOUCHER & HOTSPOT CONSIGNMENT
+// -------------------------------------------------------------
+
+model VoucherPackage {
+  id                String   @id @default(uuid())
+  name              String   // e.g., "Voucher 2.000", "Voucher 5.000"
+  sellPrice         Int      // Price to end user, e.g. 2000, 5000
+  defaultOwnerShare Int      // Net to owner, e.g. 1500, 4000
+  defaultPartnerFee Int      // Warung profit, e.g. 500, 1000
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  partnerStocks       PartnerStock[]
+  distributionItems   VoucherDistributionItem[]
+  settlementItems     VoucherSettlementItem[]
+  customPricings      PartnerCustomPricing[]
+}
+
+model HotspotPartner {
+  id             String   @id @default(uuid())
+  name           String   // Nama Warung / Titik
+  ownerName      String   // Nama Pemilik Warung
+  phone          String
+  address        String
+  coordinates    String?  // "-8.5833, 116.1167"
+  odpId          String?
+  odpPort        Int?
+  unpaidBalance  Int      @default(0) // Piutang / kurang bayar
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  odp             OdpNode?                  @relation(fields: [odpId], references: [id], onDelete: SetNull)
+  stocks          PartnerStock[]
+  customPricings  PartnerCustomPricing[]
+  distributions   VoucherDistribution[]
+  settlements     VoucherSettlement[]
+  devices         InventoryDevice[]
+
+  @@index([odpId])
+}
+
+model PartnerStock {
+  id          String   @id @default(uuid())
+  partnerId   String
+  packageId   String
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  partner     HotspotPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  package     VoucherPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, packageId])
+}
+
+model PartnerCustomPricing {
+  id               String   @id @default(uuid())
+  partnerId        String
+  packageId        String
+  customOwnerShare Int      // Custom owner share for this partner
+  updatedAt        DateTime @updatedAt
+
+  partner          HotspotPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  package          VoucherPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, packageId])
+}
+
+model VoucherDistribution {
+  id               String   @id @default(uuid())
+  partnerId        String
+  distributionDate DateTime @default(now())
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  partner          HotspotPartner            @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  items            VoucherDistributionItem[]
+
+  @@index([partnerId])
+  @@index([distributionDate])
+}
+
+model VoucherDistributionItem {
+  id             String   @id @default(uuid())
+  distributionId String
+  packageId      String
+  quantity       Int
+
+  distribution   VoucherDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  package        VoucherPackage      @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([distributionId])
+  @@index([packageId])
+}
+
+model VoucherSettlement {
+  id                   String        @id @default(uuid())
+  partnerId            String
+  settlementDate       DateTime      @default(now())
+  expectedTotal        Int           // Total owner share expected
+  actualReceived       Int           // Actual cash/transfer received
+  shortfallAmount      Int           @default(0) // expected - actual (added to partner's unpaidBalance)
+  paymentMethod        PaymentMethod @default(CASH)
+  notes                String?       @db.Text
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  partner              HotspotPartner          @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  items                VoucherSettlementItem[]
+  financialTransaction FinancialTransaction?
+
+  @@index([partnerId])
+  @@index([settlementDate])
+}
+
+model VoucherSettlementItem {
+  id                  String   @id @default(uuid())
+  settlementId        String
+  packageId           String
+  soldQuantity        Int
+  remainingStock      Int      @default(0)
+  sellPriceSnapshot   Int      // Price to end user at settlement moment
+  ownerShareSnapshot  Int      // Owner share at settlement moment
+  partnerFeeSnapshot  Int      // Partner fee at settlement moment
+  subtotalOwnerShare  Int      // soldQuantity * ownerShareSnapshot
+
+  settlement          VoucherSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  package             VoucherPackage    @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@index([packageId])
+}
+
+// -------------------------------------------------------------
+// MODULE 3: HOME CUSTOMER BILLING
+// -------------------------------------------------------------
+
+model HomeCustomer {
+  id              String         @id @default(uuid())
+  name            String
+  phone           String
+  address         String
+  coordinates     String?        // "-8.5833, 116.1167"
+  mikhmonUsername String?        // Reference to external PPPoE user
+  packageName     String         // e.g. "10 Mbps Home", "20 Mbps Gamer"
+  monthlyFee      Int            // e.g. 150000
+  installationFee Int            @default(0) // Biaya Pasang Baru
+  dueDay          Int            @default(10) // 1-31
+  status          CustomerStatus @default(ACTIVE)
+  odpId           String?
+  odpPort         Int?
+  signalDbm       Float?         // Redaman awal (dBm), e.g. -19.5
+  notes           String?        @db.Text
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  odp             OdpNode?           @relation(fields: [odpId], references: [id], onDelete: SetNull)
+  invoices        CustomerInvoice[]
+  devices         InventoryDevice[]
+
+  @@index([odpId])
+  @@index([status])
+}
+
+model CustomerInvoice {
+  id                   String        @id @default(uuid())
+  customerId           String
+  year                 Int           // e.g. 2026
+  month                Int           // 1 - 12
+  amount               Int           // Monthly fee
+  status               InvoiceStatus @default(PENDING)
+  dueDate              DateTime
+  paidAt               DateTime?
+  paymentMethod        PaymentMethod?
+  notes                String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  customer             HomeCustomer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  financialTransaction FinancialTransaction?
+
+  @@unique([customerId, year, month])
+  @@index([status])
+  @@index([year, month])
+}
+
+// -------------------------------------------------------------
+// MODULE 4: FTTH TOPOLOGY & DEVICE INVENTORY
+// -------------------------------------------------------------
+
+model RouterDevice {
+  id            String   @id @default(uuid())
+  name          String   // e.g. "MikroTik CCR2004 NOC Pusat", "MikroTik RB4011 POP Desa B"
+  brandModel    String   // e.g. "MikroTik CCR2004-1G-12S+2XS"
+  ipAddress     String?  // e.g. "192.168.10.1" / "10.20.0.1"
+  siteLocation  String   // e.g. "NOC Pusat", "POP Tower Desa Sukamaju"
+  isCoreGateway Boolean  @default(false)
+  apiPort       Int?     @default(8728)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  oltDevices    OltDevice[]
+  ispProviders  IspProvider[]
+  devices       InventoryDevice[]
+}
+
+model IspProvider {
+  id            String   @id @default(uuid())
+  name          String   // e.g. "Telkom Astinet Dedicated", "Moratelindo BGP Transit"
+  bandwidthMbps Int      @default(100) // Bandwidth upstream dalam Mbps
+  serviceType   String   @default("DEDICATED") // DEDICATED, BROADBAND, WIRELESS
+  circuitId     String?  // CID / Nomor Layanan Pelanggan ISP
+  routerId      String?  // Terhubung ke router mana
+  monthlyCost   Int?     @default(0) // Biaya bulanan (Rp)
+  contactPhone  String?  // Helpdesk ISP / Sales
+  status        String   @default("ACTIVE") // ACTIVE, BACKUP, ISOLATED
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  router        RouterDevice? @relation(fields: [routerId], references: [id], onDelete: SetNull)
+
+  @@index([routerId])
+}
+
+model OltDevice {
+  id            String   @id @default(uuid())
+  name          String   // e.g. "OLT ZTE C320 Kantor Utama"
+  brandModel    String   // e.g. "ZTE C320" / "HSGQ 4-PON"
+  localIp       String?  // "192.168.10.2"
+  ponPortsCount Int      @default(4)
+  location      String
+  routerId      String?  // Terhubung ke Router/POP mana
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  router        RouterDevice? @relation(fields: [routerId], references: [id], onDelete: SetNull)
+  odpNodes      OdpNode[]
+  devices       InventoryDevice[]
+
+  @@index([routerId])
+}
+
+model OdpNode {
+  id               String   @id @default(uuid())
+  code             String   @unique // e.g. "ODP-01-A", "ODP-02-B"
+  oltId            String?
+  ponPortNumber    Int      @default(1)
+  splitterCapacity Int      @default(8) // 8 or 16 ports
+  coordinates      String?  // "-8.5833, 116.1167"
+  opticalPowerDbm  Float?   // Redaman ODP, e.g. -18.2 dBm
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  olt              OltDevice?       @relation(fields: [oltId], references: [id], onDelete: SetNull)
+  homeCustomers    HomeCustomer[]
+  hotspotPartners  HotspotPartner[]
+  devices          InventoryDevice[]
+
+  @@index([oltId])
+}
+
+model InventoryDevice {
+  id               String         @id @default(uuid())
+  category         DeviceCategory
+  brandModel       String         // e.g. "ZTE F609", "TP-Link CPE220", "MikroTik RB750Gr3"
+  serialNumber     String         @unique
+  macAddress       String?
+  purchaseDate     DateTime?
+  purchasePrice    Int?           @default(0)
+  status           DeviceStatus   @default(IN_STOCK)
+  homeCustomerId   String?
+  hotspotPartnerId String?
+  oltDeviceId      String?
+  odpNodeId        String?
+  routerDeviceId   String?
+  notes            String?        @db.Text
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  homeCustomer     HomeCustomer?   @relation(fields: [homeCustomerId], references: [id], onDelete: SetNull)
+  hotspotPartner   HotspotPartner? @relation(fields: [hotspotPartnerId], references: [id], onDelete: SetNull)
+  oltDevice        OltDevice?      @relation(fields: [oltDeviceId], references: [id], onDelete: SetNull)
+  odpNode          OdpNode?        @relation(fields: [odpNodeId], references: [id], onDelete: SetNull)
+  routerDevice     RouterDevice?   @relation(fields: [routerDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([category])
+  @@index([homeCustomerId])
+  @@index([hotspotPartnerId])
+  @@index([oltDeviceId])
+  @@index([odpNodeId])
+  @@index([routerDeviceId])
+}
+
+// -------------------------------------------------------------
+// MODULE 5: UNIFIED FINANCIAL LEDGER
+// -------------------------------------------------------------
+
+model FinancialTransaction {
+  id              String            @id @default(uuid())
+  type            TransactionType
+  category        FinancialCategory
+  amount          Int
+  transactionDate DateTime          @default(now())
+  description     String            @db.Text
+  paymentMethod   PaymentMethod     @default(CASH)
+  referenceId     String?           // e.g. settlementId or invoiceId
+
+  settlementId    String?           @unique
+  settlement      VoucherSettlement? @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  invoiceId       String?           @unique
+  invoice         CustomerInvoice?   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([type])
+  @@index([category])
+  @@index([transactionDate])
+}
+
+// -------------------------------------------------------------
+// MODULE 6: USER MANAGEMENT & AUTHENTICATION
+// -------------------------------------------------------------
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  username  String   @unique
+  email     String?  @unique
+  password  String
+  role      UserRole @default(ADMIN)
+  isActive  Boolean  @default(true)
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([username])
+  @@index([role])
+}
+
+model RoleProfile {
+  id          String   @id @default(uuid())
+  role        UserRole @unique
+  displayName String
+  description String?  @db.Text
+  permissions Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([role])
+}
