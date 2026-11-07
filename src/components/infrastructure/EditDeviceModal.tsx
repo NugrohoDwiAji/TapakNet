@@ -13,6 +13,7 @@ interface EditDeviceModalProps {
 
 interface DeviceEditFormData {
   category: DeviceCategory;
+  customCategory: string;
   brandModel: string;
   serialNumber: string;
   macAddress: string;
@@ -29,6 +30,7 @@ export default function EditDeviceModal({
 }: EditDeviceModalProps) {
   const [formData, setFormData] = useState<DeviceEditFormData>({
     category: device.category as DeviceCategory,
+    customCategory: device.customCategory || "",
     brandModel: device.brandModel,
     serialNumber: device.serialNumber,
     macAddress: device.macAddress || "",
@@ -47,10 +49,19 @@ export default function EditDeviceModal({
     e.preventDefault();
     setError(null);
 
+    if (formData.category === DeviceCategory.OTHER && !formData.customCategory.trim()) {
+      setError("Silakan isi nama kategori manual untuk perangkat ini");
+      return;
+    }
+
     try {
       setLoading(true);
       await updateInventoryDevice(device.id, {
         category: formData.category,
+        customCategory:
+          formData.category === DeviceCategory.OTHER
+            ? formData.customCategory.trim()
+            : undefined,
         brandModel: formData.brandModel,
         serialNumber: formData.serialNumber.trim().toUpperCase(),
         macAddress: formData.macAddress.trim() || undefined,
@@ -117,6 +128,7 @@ export default function EditDeviceModal({
                 <option value={DeviceCategory.ROUTER}>Router / MikroTik</option>
                 <option value={DeviceCategory.SWITCH}>Switch Hub</option>
                 <option value={DeviceCategory.CONVERTER}>Converter HTB</option>
+                <option value={DeviceCategory.OTHER}>Lainnya (Input Kategori Manual)</option>
               </select>
             </div>
 
@@ -140,6 +152,27 @@ export default function EditDeviceModal({
               </select>
             </div>
           </div>
+
+          {formData.category === DeviceCategory.OTHER && (
+            <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-1">
+              <label className="block text-xs font-semibold text-amber-900">
+                Nama Kategori Manual *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Contoh: Tang Crimping, Splicer, Stripper, Roll FO, dll"
+                value={formData.customCategory}
+                onChange={(e) =>
+                  setFormData({ ...formData, customCategory: e.target.value })
+                }
+                className="w-full px-3.5 py-2 rounded-xl border border-amber-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2] bg-white"
+              />
+              <p className="text-[11px] text-amber-700">
+                Kategori ini akan disimpan sebagai identitas khusus perangkat inventaris.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -203,6 +236,9 @@ export default function EditDeviceModal({
                 onChange={(e) => setFormData({ ...formData, purchasePrice: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2]"
               />
+              <p className="text-[10px] text-emerald-600 font-medium mt-1">
+                Otomatis sinkron ke Pengeluaran Buku Kas & Keuangan.
+              </p>
             </div>
           </div>
 

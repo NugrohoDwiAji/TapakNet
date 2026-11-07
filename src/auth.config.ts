@@ -2,6 +2,11 @@ import type { NextAuthConfig } from "next-auth";
 
 export const authConfig: NextAuthConfig = {
   trustHost: true,
+  session: {
+    strategy: "jwt",
+    maxAge: 8 * 60 * 60, // 8 jam (1 shift kerja), menggantikan default NextAuth yang 30 hari
+    updateAge: 60 * 60,  // Refresh token setiap 1 jam jika pengguna sedang aktif
+  },
   pages: {
     signIn: "/login",
   },

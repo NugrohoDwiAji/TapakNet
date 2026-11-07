@@ -77,7 +77,11 @@ export default function DeviceDetailModal({
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div>
             <span className="text-[10px] text-slate-400 font-semibold block uppercase">Kategori:</span>
-            <span className="font-bold text-xs text-[#072255]">{device.category}</span>
+            <span className="font-bold text-xs text-[#072255]">
+              {device.category === "OTHER" && device.customCategory
+                ? device.customCategory
+                : device.category}
+            </span>
           </div>
           <span className={`text-xs px-3 py-1 rounded-full font-bold border ${statusBadge.color}`}>
             {statusBadge.label}

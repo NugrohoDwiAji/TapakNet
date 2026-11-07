@@ -273,6 +273,7 @@ export default function InfrastructureClientView({
     const matchesSearch =
       d.serialNumber.toLowerCase().includes(deviceSearch.toLowerCase()) ||
       d.brandModel.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+      (d.customCategory && d.customCategory.toLowerCase().includes(deviceSearch.toLowerCase())) ||
       (d.macAddress && d.macAddress.toLowerCase().includes(deviceSearch.toLowerCase())) ||
       (d.homeCustomer && d.homeCustomer.name.toLowerCase().includes(deviceSearch.toLowerCase())) ||
       (d.hotspotPartner && d.hotspotPartner.name.toLowerCase().includes(deviceSearch.toLowerCase())) ||
@@ -801,6 +802,7 @@ export default function InfrastructureClientView({
                 <option value={DeviceCategory.ROUTER}>Router</option>
                 <option value={DeviceCategory.SWITCH}>Switch Hub</option>
                 <option value={DeviceCategory.CONVERTER}>Converter HTB</option>
+                <option value={DeviceCategory.OTHER}>Lainnya (Manual)</option>
               </select>
 
               <select
@@ -844,8 +846,10 @@ export default function InfrastructureClientView({
                       <tr key={dev.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3 px-4">
                           <span className="font-bold text-slate-900 block">{dev.brandModel}</span>
-                          <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 rounded bg-slate-100 border border-slate-200 w-fit inline-block mt-0.5">
-                            {dev.category}
+                          <span className="text-[10px] text-slate-500 font-semibold px-2 py-0.5 rounded bg-slate-100 border border-slate-200 w-fit inline-block mt-0.5">
+                            {dev.category === "OTHER" && dev.customCategory
+                              ? dev.customCategory
+                              : dev.category}
                           </span>
                         </td>
 

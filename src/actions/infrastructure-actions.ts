@@ -2,7 +2,12 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { DeviceCategory, DeviceStatus } from "@prisma/client";
+import {
+  DeviceCategory,
+  DeviceStatus,
+  TransactionType,
+  FinancialCategory,
+} from "@prisma/client";
 
 function safeRevalidate(path: string) {
   try {
@@ -508,6 +513,7 @@ export async function getInventoryDevices() {
 
 export async function createInventoryDevice(data: {
   category: DeviceCategory;
+  customCategory?: string;
   brandModel: string;
   serialNumber: string;
   macAddress?: string;
@@ -518,23 +524,56 @@ export async function createInventoryDevice(data: {
   hotspotPartnerId?: string;
   notes?: string;
 }) {
-  const device = await prisma.inventoryDevice.create({
-    data: {
-      category: data.category,
-      brandModel: data.brandModel,
-      serialNumber: data.serialNumber.trim().toUpperCase(),
-      macAddress: data.macAddress ? data.macAddress.trim() : null,
-      purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : null,
-      purchasePrice: Number(data.purchasePrice || 0),
-      status: data.status,
-      homeCustomerId: data.homeCustomerId || null,
-      hotspotPartnerId: data.hotspotPartnerId || null,
-      notes: data.notes || null,
-    },
+  const price = Number(data.purchasePrice || 0);
+  const pDate = data.purchaseDate ? new Date(data.purchaseDate) : new Date();
+
+  const device = await prisma.$transaction(async (tx) => {
+    const created = await tx.inventoryDevice.create({
+      data: {
+        category: data.category,
+        customCategory:
+          data.category === DeviceCategory.OTHER && data.customCategory
+            ? data.customCategory.trim()
+            : null,
+        brandModel: data.brandModel.trim(),
+        serialNumber: data.serialNumber.trim().toUpperCase(),
+        macAddress: data.macAddress ? data.macAddress.trim() : null,
+        purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : null,
+        purchasePrice: price,
+        status: data.status,
+        homeCustomerId: data.homeCustomerId || null,
+        hotspotPartnerId: data.hotspotPartnerId || null,
+        notes: data.notes || null,
+      },
+    });
+
+    // Otomatis masukkan harga beli ke Pengeluaran Buku Kas Keuangan
+    if (price > 0) {
+      const categoryLabel =
+        data.category === DeviceCategory.OTHER && data.customCategory
+          ? data.customCategory.trim()
+          : data.category;
+
+      await tx.financialTransaction.create({
+        data: {
+          type: TransactionType.EXPENSE,
+          category: FinancialCategory.HARDWARE_PURCHASE,
+          amount: price,
+          transactionDate: pDate,
+          description: `Pembelian Perangkat ${categoryLabel}: ${data.brandModel.trim()} (SN: ${data.serialNumber.trim().toUpperCase()})`,
+          referenceId: created.id,
+        },
+      });
+    }
+
+    return created;
   });
+
   safeRevalidate("/infrastructure");
   safeRevalidate("/customers");
   safeRevalidate("/hotspot");
+  safeRevalidate("/finance");
+  safeRevalidate("/dashboard");
   return device;
 }
 
@@ -542,6 +581,7 @@ export async function updateInventoryDevice(
   id: string,
   data: {
     category?: DeviceCategory;
+    customCategory?: string | null;
     brandModel?: string;
     serialNumber?: string;
     macAddress?: string;
@@ -553,16 +593,116 @@ export async function updateInventoryDevice(
     notes?: string;
   }
 ) {
-  const device = await prisma.inventoryDevice.update({
-    where: { id },
-    data: {
-      ...data,
-      purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : undefined,
-    },
+  const device = await prisma.$transaction(async (tx) => {
+    const currentDevice = await tx.inventoryDevice.findUnique({
+      where: { id },
+    });
+    if (!currentDevice) throw new Error("Perangkat tidak ditemukan");
+
+    const newCategory = data.category ?? currentDevice.category;
+    const newCustomCategory =
+      data.customCategory !== undefined
+        ? data.customCategory
+        : currentDevice.customCategory;
+    const newBrand = data.brandModel ?? currentDevice.brandModel;
+    const newSN = data.serialNumber ?? currentDevice.serialNumber;
+    const newPrice =
+      data.purchasePrice !== undefined
+        ? Number(data.purchasePrice || 0)
+        : currentDevice.purchasePrice || 0;
+    const newDate =
+      data.purchaseDate !== undefined
+        ? data.purchaseDate
+          ? new Date(data.purchaseDate)
+          : null
+        : currentDevice.purchaseDate;
+
+    const updated = await tx.inventoryDevice.update({
+      where: { id },
+      data: {
+        category: data.category,
+        customCategory:
+          newCategory === DeviceCategory.OTHER
+            ? newCustomCategory
+              ? newCustomCategory.trim()
+              : null
+            : null,
+        brandModel: data.brandModel ? data.brandModel.trim() : undefined,
+        serialNumber: data.serialNumber
+          ? data.serialNumber.trim().toUpperCase()
+          : undefined,
+        macAddress:
+          data.macAddress !== undefined
+            ? data.macAddress
+              ? data.macAddress.trim()
+              : null
+            : undefined,
+        purchaseDate:
+          data.purchaseDate !== undefined
+            ? data.purchaseDate
+              ? new Date(data.purchaseDate)
+              : null
+            : undefined,
+        purchasePrice:
+          data.purchasePrice !== undefined
+            ? Number(data.purchasePrice || 0)
+            : undefined,
+        status: data.status,
+        homeCustomerId: data.homeCustomerId,
+        hotspotPartnerId: data.hotspotPartnerId,
+        notes: data.notes,
+      },
+    });
+
+    // Sinkronisasi dengan catatan transaksi buku kas pengeluaran
+    const existingTx = await tx.financialTransaction.findFirst({
+      where: {
+        referenceId: id,
+        category: FinancialCategory.HARDWARE_PURCHASE,
+      },
+    });
+
+    const categoryLabel =
+      newCategory === DeviceCategory.OTHER && newCustomCategory
+        ? newCustomCategory.trim()
+        : newCategory;
+
+    if (existingTx) {
+      if (newPrice > 0) {
+        await tx.financialTransaction.update({
+          where: { id: existingTx.id },
+          data: {
+            amount: newPrice,
+            transactionDate: newDate ?? existingTx.transactionDate,
+            description: `Pembelian Perangkat ${categoryLabel}: ${newBrand.trim()} (SN: ${newSN.trim().toUpperCase()})`,
+          },
+        });
+      } else {
+        await tx.financialTransaction.delete({
+          where: { id: existingTx.id },
+        });
+      }
+    } else if (newPrice > 0) {
+      await tx.financialTransaction.create({
+        data: {
+          type: TransactionType.EXPENSE,
+          category: FinancialCategory.HARDWARE_PURCHASE,
+          amount: newPrice,
+          transactionDate: newDate ?? new Date(),
+          description: `Pembelian Perangkat ${categoryLabel}: ${newBrand.trim()} (SN: ${newSN.trim().toUpperCase()})`,
+          referenceId: id,
+        },
+      });
+    }
+
+    return updated;
   });
+
   safeRevalidate("/infrastructure");
   safeRevalidate("/customers");
   safeRevalidate("/hotspot");
+  safeRevalidate("/finance");
+  safeRevalidate("/dashboard");
   return device;
 }
 
@@ -622,10 +762,23 @@ export async function toggleDeviceActiveStatus(deviceId: string) {
 }
 
 export async function deleteInventoryDevice(deviceId: string) {
-  await prisma.inventoryDevice.delete({
-    where: { id: deviceId },
+  await prisma.$transaction(async (tx) => {
+    // Hapus juga transaksi pengeluaran terkait jika ada
+    await tx.financialTransaction.deleteMany({
+      where: {
+        referenceId: deviceId,
+        category: FinancialCategory.HARDWARE_PURCHASE,
+      },
+    });
+
+    await tx.inventoryDevice.delete({
+      where: { id: deviceId },
+    });
   });
+
   safeRevalidate("/infrastructure");
   safeRevalidate("/customers");
   safeRevalidate("/hotspot");
+  safeRevalidate("/finance");
+  safeRevalidate("/dashboard");
 }

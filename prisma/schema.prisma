@@ -42,6 +42,7 @@ enum DeviceCategory {
   ROUTER
   SWITCH
   CONVERTER
+  OTHER
 }
 
 enum DeviceStatus {
@@ -345,6 +346,7 @@ model OdpNode {
 model InventoryDevice {
   id               String         @id @default(uuid())
   category         DeviceCategory
+  customCategory   String?
   brandModel       String         // e.g. "ZTE F609", "TP-Link CPE220", "MikroTik RB750Gr3"
   serialNumber     String         @unique
   macAddress       String?
