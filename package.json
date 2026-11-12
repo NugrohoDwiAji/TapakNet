@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "next dev --turbo",
     "clean": "rm -rf .next",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts"
