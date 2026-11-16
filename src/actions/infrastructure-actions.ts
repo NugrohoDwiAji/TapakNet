@@ -106,6 +106,9 @@ export async function updateRouterDevice(
 }
 
 export async function deleteRouterDevice(id: string) {
+  const existing = await prisma.routerDevice.findUnique({ where: { id } });
+  if (!existing) return;
+
   await prisma.$transaction(async (tx) => {
     // Release any linked inventory devices back to stock
     await tx.inventoryDevice.updateMany({
@@ -208,6 +211,9 @@ export async function updateIspProvider(
 }
 
 export async function deleteIspProvider(id: string) {
+  const existing = await prisma.ispProvider.findUnique({ where: { id } });
+  if (!existing) return;
+
   await prisma.ispProvider.delete({
     where: { id },
   });
@@ -293,6 +299,9 @@ export async function updateOltDevice(
 }
 
 export async function deleteOltDevice(id: string) {
+  const existing = await prisma.oltDevice.findUnique({ where: { id } });
+  if (!existing) return;
+
   await prisma.$transaction(async (tx) => {
     // Release any linked inventory devices back to stock
     await tx.inventoryDevice.updateMany({
@@ -468,6 +477,9 @@ export async function updateOdpNode(
 }
 
 export async function deleteOdpNode(id: string) {
+  const existing = await prisma.odpNode.findUnique({ where: { id } });
+  if (!existing) return;
+
   await prisma.$transaction(async (tx) => {
     // Release any linked inventory devices back to stock
     await tx.inventoryDevice.updateMany({
@@ -524,6 +536,16 @@ export async function createInventoryDevice(data: {
   hotspotPartnerId?: string;
   notes?: string;
 }) {
+  const cleanSN = data.serialNumber.trim().toUpperCase();
+  const existingSN = await prisma.inventoryDevice.findUnique({
+    where: { serialNumber: cleanSN },
+  });
+  if (existingSN) {
+    throw new Error(
+      `Nomor Seri (SN: ${cleanSN}) sudah terdaftar pada perangkat "${existingSN.brandModel}". Harap gunakan nomor seri yang unik.`
+    );
+  }
+
   const price = Number(data.purchasePrice || 0);
   const pDate = data.purchaseDate ? new Date(data.purchaseDate) : new Date();
 
@@ -536,7 +558,7 @@ export async function createInventoryDevice(data: {
             ? data.customCategory.trim()
             : null,
         brandModel: data.brandModel.trim(),
-        serialNumber: data.serialNumber.trim().toUpperCase(),
+        serialNumber: cleanSN,
         macAddress: data.macAddress ? data.macAddress.trim() : null,
         purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : null,
         purchasePrice: price,
@@ -762,6 +784,11 @@ export async function toggleDeviceActiveStatus(deviceId: string) {
 }
 
 export async function deleteInventoryDevice(deviceId: string) {
+  const existing = await prisma.inventoryDevice.findUnique({
+    where: { id: deviceId },
+  });
+  if (!existing) return;
+
   await prisma.$transaction(async (tx) => {
     // Hapus juga transaksi pengeluaran terkait jika ada
     await tx.financialTransaction.deleteMany({
