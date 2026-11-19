@@ -55,6 +55,16 @@ export default function AddDeviceModal({ onClose, onSuccess }: AddDeviceModalPro
     e.preventDefault();
     setError(null);
 
+    if (!formData.brandModel.trim()) {
+      setError("Silakan isi Merk & Seri / Model perangkat.");
+      return;
+    }
+
+    if (!formData.serialNumber.trim()) {
+      setError("Silakan isi Nomor Seri (SN) perangkat.");
+      return;
+    }
+
     if (formData.category === DeviceCategory.OTHER && !formData.customCategory.trim()) {
       setError("Silakan isi nama kategori manual untuk kategori 'Lainnya'.");
       return;
@@ -62,20 +72,25 @@ export default function AddDeviceModal({ onClose, onSuccess }: AddDeviceModalPro
 
     try {
       setLoading(true);
-      await createInventoryDevice({
+      const res = await createInventoryDevice({
         category: formData.category,
         customCategory:
           formData.category === DeviceCategory.OTHER
             ? formData.customCategory.trim()
             : undefined,
-        brandModel: formData.brandModel,
-        serialNumber: formData.serialNumber,
-        macAddress: formData.macAddress || undefined,
+        brandModel: formData.brandModel.trim(),
+        serialNumber: formData.serialNumber.trim(),
+        macAddress: formData.macAddress.trim() || undefined,
         purchaseDate: formData.purchaseDate || undefined,
         purchasePrice: Number(formData.purchasePrice || 0),
         status: formData.status,
-        notes: formData.notes || undefined,
+        notes: formData.notes.trim() || undefined,
       });
+
+      if (res && res.success === false) {
+        setError(res.error || "Gagal mencatat perangkat inventaris");
+        return;
+      }
 
       onSuccess();
       onClose();

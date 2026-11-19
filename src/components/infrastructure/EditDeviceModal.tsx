@@ -56,20 +56,25 @@ export default function EditDeviceModal({
 
     try {
       setLoading(true);
-      await updateInventoryDevice(device.id, {
+      const res = await updateInventoryDevice(device.id, {
         category: formData.category,
         customCategory:
           formData.category === DeviceCategory.OTHER
             ? formData.customCategory.trim()
             : undefined,
-        brandModel: formData.brandModel,
+        brandModel: formData.brandModel.trim(),
         serialNumber: formData.serialNumber.trim().toUpperCase(),
         macAddress: formData.macAddress.trim() || undefined,
         purchaseDate: formData.purchaseDate || null,
         purchasePrice: Number(formData.purchasePrice || 0),
         status: formData.status,
-        notes: formData.notes || undefined,
+        notes: formData.notes.trim() || undefined,
       });
+
+      if (res && res.success === false) {
+        setError(res.error || "Gagal memperbarui data perangkat");
+        return;
+      }
 
       onSuccess();
       onClose();
