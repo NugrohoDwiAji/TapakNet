@@ -49,7 +49,7 @@ interface LayoutLink {
   targetId: string;
   source: { x: number; y: number };
   target: { x: number; y: number };
-  type: "FIBER_TRUNK" | "PON_FEEDER" | "DROPCORE";
+  type: "FIBER_TRUNK" | "PON_FEEDER" | "CASCADE" | "DROPCORE";
   label?: string;
   status?: "NORMAL" | "WARNING" | "CRITICAL" | "OFFLINE";
   signalDbm?: number | null;
@@ -111,24 +111,112 @@ export default function CiscoPacketTracerCanvas({
     const LAYER_Y = {
       CLOUD: 70,
       CORE: 190,
-      OLT: 330,
-      ODP: 490,
-      CLIENT: 650,
+      OLT: 320,
+      ODP: 470,
+      SUB_ODP: 610,
     };
 
-    interface OdpBox {
-      odp: any;
-      width: number;
-      clients: any[];
-      x: number;
-      y: number;
-      olt: any;
+    // 1. Build map of all ODPs across OLTs and unassigned
+    const allOdpsMap = new Map<string, any>();
+    for (const olt of olts) {
+      for (const odp of olt.odpNodes || []) {
+        allOdpsMap.set(odp.id, odp);
+      }
+    }
+    for (const odp of unassignedOdps || []) {
+      allOdpsMap.set(odp.id, odp);
     }
 
+    interface OdpTreeNode {
+      odp: any;
+      olt: any;
+      clients: any[];
+      children: OdpTreeNode[];
+      width: number;
+      x: number;
+      y: number;
+      depth: number;
+    }
+
+    let globalMaxDepth = 0;
+
+    // Recursive tree builder
+    function buildOdpTree(odp: any, olt: any, depth = 0): OdpTreeNode {
+      if (depth > globalMaxDepth) globalMaxDepth = depth;
+
+      const clients = [
+        ...((odp.homeCustomers || []).map((c: any) => ({ ...c, _clientType: "CUSTOMER" }))),
+        ...((odp.hotspotPartners || []).map((p: any) => ({ ...p, _clientType: "PARTNER" }))),
+      ].sort((a: any, b: any) => (a.odpPort || 0) - (b.odpPort || 0));
+
+      const clientWidth = Math.max(MIN_ODP_WIDTH, clients.length * CLIENT_WIDTH + 40);
+
+      // Find children in allOdpsMap (child splitters branching from this ODP)
+      const rawChildren = Array.from(allOdpsMap.values()).filter(
+        (c: any) => c.parentOdpId === odp.id && c.id !== odp.id
+      );
+
+      const children = rawChildren.map((ch) => buildOdpTree(ch, olt, depth + 1));
+      const childrenWidth = children.reduce((sum: number, ch: OdpTreeNode) => sum + ch.width, 0);
+
+      let width = clientWidth;
+      if (children.length > 0 && clients.length > 0) {
+        width = clientWidth + childrenWidth + 40;
+      } else if (children.length > 0) {
+        width = Math.max(clientWidth, childrenWidth);
+      }
+
+      const y = depth === 0 ? LAYER_Y.ODP : LAYER_Y.SUB_ODP + (depth - 1) * 140;
+
+      return {
+        odp,
+        olt,
+        clients,
+        children,
+        width,
+        x: 0,
+        y,
+        depth,
+      };
+    }
+
+    // Recursive layout coordinate assignment
+    function layoutOdpTree(treeNode: OdpTreeNode, startX: number) {
+      const clientWidth = Math.max(MIN_ODP_WIDTH, treeNode.clients.length * CLIENT_WIDTH + 40);
+
+      if (treeNode.children.length === 0) {
+        treeNode.x = startX + treeNode.width / 2;
+        const clientStartX = treeNode.x - ((treeNode.clients.length - 1) * CLIENT_WIDTH) / 2;
+        treeNode.clients.forEach((c: any, idx: number) => {
+          c._x = clientStartX + idx * CLIENT_WIDTH;
+        });
+      } else if (treeNode.clients.length === 0) {
+        treeNode.x = startX + treeNode.width / 2;
+        let currX = startX;
+        for (const child of treeNode.children) {
+          layoutOdpTree(child, currX);
+          currX += child.width;
+        }
+      } else {
+        treeNode.x = startX + clientWidth / 2;
+        const clientStartX = treeNode.x - ((treeNode.clients.length - 1) * CLIENT_WIDTH) / 2;
+        treeNode.clients.forEach((c: any, idx: number) => {
+          c._x = clientStartX + idx * CLIENT_WIDTH;
+        });
+
+        let currX = startX + clientWidth + 40;
+        for (const child of treeNode.children) {
+          layoutOdpTree(child, currX);
+          currX += child.width;
+        }
+      }
+    }
+
+    // Structure OLT boxes with their hierarchical ODP trees
     interface OltBox {
       olt: any;
       width: number;
-      odpBoxes: OdpBox[];
+      odpTrees: OdpTreeNode[];
       x: number;
       y: number;
     }
@@ -136,52 +224,45 @@ export default function CiscoPacketTracerCanvas({
     const oltBoxes: OltBox[] = [];
 
     for (const olt of displayOlts) {
-      const odpBoxes: OdpBox[] = [];
+      const allOltOdps = olt.odpNodes || [];
+      // Root ODPs: not connected to any parent ODP, or parent not in map
+      const rootOdps = allOltOdps.filter(
+        (o: any) => !o.parentOdpId || !allOdpsMap.has(o.parentOdpId)
+      );
 
-      for (const odp of olt.odpNodes) {
-        const clients = [
-          ...odp.homeCustomers.map((c: any) => ({ ...c, _clientType: "CUSTOMER" })),
-          ...odp.hotspotPartners.map((p: any) => ({ ...p, _clientType: "PARTNER" })),
-        ].sort((a, b) => (a.odpPort || 0) - (b.odpPort || 0));
-
-        const requiredWidth = Math.max(
-          MIN_ODP_WIDTH,
-          clients.length * CLIENT_WIDTH + 40
-        );
-
-        odpBoxes.push({
-          odp,
-          width: requiredWidth,
-          clients,
-          x: 0,
-          y: LAYER_Y.ODP,
-          olt,
-        });
-      }
-
-      const totalOltWidth =
-        odpBoxes.length > 0
-          ? odpBoxes.reduce((sum, b) => sum + b.width, 0)
-          : 260;
+      const odpTrees = rootOdps.map((o: any) => buildOdpTree(o, olt, 0));
+      const totalTreesWidth =
+        odpTrees.length > 0 ? odpTrees.reduce((sum: number, t: OdpTreeNode) => sum + t.width, 0) : 260;
 
       oltBoxes.push({
         olt,
-        width: Math.max(300, totalOltWidth + 60),
-        odpBoxes,
+        width: Math.max(300, totalTreesWidth + 60),
+        odpTrees,
         x: 0,
         y: LAYER_Y.OLT,
       });
     }
 
+    // Standalone ODP Trees (not linked to any OLT)
+    const standaloneRootOdps = (unassignedOdps || []).filter(
+      (o: any) => !o.parentOdpId || !allOdpsMap.has(o.parentOdpId)
+    );
+    const standaloneTrees = standaloneRootOdps.map((o: any) => buildOdpTree(o, null, 0));
+    const totalStandaloneWidth =
+      standaloneTrees.length > 0 ? standaloneTrees.reduce((sum: number, t: OdpTreeNode) => sum + t.width, 0) : 0;
+
     const totalNetworkWidth = Math.max(
       1200,
-      oltBoxes.reduce((sum, b) => sum + b.width, 0) + 160
+      oltBoxes.reduce((sum: number, b: OltBox) => sum + b.width, 0) +
+        (totalStandaloneWidth > 0 ? totalStandaloneWidth + 120 : 0) +
+        160
     );
 
-    const totalNetworkHeight = 850;
+    const clientLayerY = Math.max(760, LAYER_Y.ODP + (globalMaxDepth + 1) * 140);
+    const totalNetworkHeight = clientLayerY + 140;
     const rootX = totalNetworkWidth / 2;
 
-    // First assign default X positions for each OLT
+    // Assign X positions for OLTs
     let currentOltX = 80;
     for (const oltBox of oltBoxes) {
       oltBox.x = currentOltX + oltBox.width / 2;
@@ -193,7 +274,6 @@ export default function CiscoPacketTracerCanvas({
     const coreRouter = routers.find((r) => r.isCoreGateway) || routers[0];
 
     if (routers.length > 0) {
-      // Group OLTs by router to place router above its child OLTs
       const assignedXPerRouter: Record<string, number[]> = {};
       for (const oltBox of oltBoxes) {
         const rId = oltBox.olt.routerId || (coreRouter ? coreRouter.id : "");
@@ -226,7 +306,6 @@ export default function CiscoPacketTracerCanvas({
         routerMap[r.id] = { id: rNode.id, x: rX, y: LAYER_Y.CORE, node: rNode };
       });
     } else {
-      // Default single Core Router NOC node
       const defaultCoreNode: LayoutNode = {
         id: "node-core",
         type: "CORE",
@@ -279,7 +358,6 @@ export default function CiscoPacketTracerCanvas({
         }
       });
     } else {
-      // Default single Cloud node
       const defaultCloudNode: LayoutNode = {
         id: "node-cloud",
         type: "CLOUD",
@@ -306,7 +384,125 @@ export default function CiscoPacketTracerCanvas({
       }
     }
 
-    // 3. Position OLTs and descendents
+    // Helper to recursively render ODP tree nodes and cables
+    function renderOdpTree(treeNode: OdpTreeNode) {
+      calculatedNodes.push({
+        id: `node-odp-${treeNode.odp.id}`,
+        type: "ODP",
+        label: treeNode.odp.code,
+        sublabel: treeNode.odp.parentOdp
+          ? `ODP ${treeNode.odp.parentOdp.code} (P${treeNode.odp.parentOdpPort || 1})`
+          : treeNode.olt
+          ? `PON ${treeNode.odp.ponPortNumber} • 1:${treeNode.odp.splitterCapacity}`
+          : `Standalone • 1:${treeNode.odp.splitterCapacity}`,
+        extra: treeNode.odp.opticalPowerDbm ? `${treeNode.odp.opticalPowerDbm} dBm` : "ODP Box",
+        signalDbm: treeNode.odp.opticalPowerDbm,
+        x: treeNode.x,
+        y: treeNode.y,
+        data: treeNode.odp,
+        parentInfo: {
+          oltName: treeNode.olt?.name,
+          ponPort: treeNode.odp.ponPortNumber,
+          odpCode: treeNode.odp.parentOdp?.code,
+          portNumber: treeNode.odp.parentOdpPort,
+        },
+      });
+
+      const odpSignal = treeNode.odp.opticalPowerDbm;
+      let odpLinkStatus: LayoutLink["status"] = "NORMAL";
+      if (odpSignal !== null && odpSignal !== undefined) {
+        if (odpSignal < -24) odpLinkStatus = "CRITICAL";
+        else if (odpSignal < -20) odpLinkStatus = "WARNING";
+      }
+
+      // Link upstream
+      if (treeNode.depth === 0) {
+        // Root ODP connected to OLT
+        if (treeNode.olt) {
+          calculatedLinks.push({
+            id: `link-olt-odp-${treeNode.odp.id}`,
+            sourceId: `node-olt-${treeNode.olt.id}`,
+            targetId: `node-odp-${treeNode.odp.id}`,
+            source: { x: treeNode.olt.x, y: LAYER_Y.OLT },
+            target: { x: treeNode.x, y: treeNode.y },
+            type: "PON_FEEDER",
+            label: `PON ${treeNode.odp.ponPortNumber}`,
+            status: odpLinkStatus,
+            signalDbm: odpSignal,
+          });
+        }
+      } else {
+        // Child Splitter ODP -> Link from parent ODP!
+        calculatedLinks.push({
+          id: `link-cascade-odp-${treeNode.odp.parentOdpId}-to-${treeNode.odp.id}`,
+          sourceId: `node-odp-${treeNode.odp.parentOdpId}`,
+          targetId: `node-odp-${treeNode.odp.id}`,
+          source: { x: treeNode.x, y: treeNode.y },
+          target: { x: treeNode.x, y: treeNode.y },
+          type: "CASCADE",
+          label: `Splitter P${treeNode.odp.parentOdpPort || 1}`,
+          status: odpLinkStatus,
+          signalDbm: odpSignal,
+        });
+      }
+
+      // Direct Clients of this ODP
+      treeNode.clients.forEach((client: any, cIdx: number) => {
+        const isCust = client._clientType === "CUSTOMER";
+        const clientSignal = isCust ? client.signalDbm : odpSignal;
+        let clientLinkStatus: LayoutLink["status"] = "NORMAL";
+        if (clientSignal !== null && clientSignal !== undefined) {
+          if (clientSignal < -24) clientLinkStatus = "CRITICAL";
+          else if (clientSignal < -20) clientLinkStatus = "WARNING";
+        }
+        if (isCust && client.status === "INACTIVE") {
+          clientLinkStatus = "OFFLINE";
+        }
+
+        calculatedNodes.push({
+          id: `node-client-${client.id}`,
+          type: isCust ? "CUSTOMER" : "PARTNER",
+          label: client.name,
+          sublabel: isCust
+            ? client.packageName || "PPPoE Home"
+            : `Mitra (${client.ownerName || "Hotspot"})`,
+          extra: client.odpPort ? `Port ${client.odpPort}` : undefined,
+          signalDbm: isCust ? client.signalDbm : null,
+          status: isCust ? client.status : "ACTIVE",
+          x: client._x,
+          y: clientLayerY,
+          data: client,
+          parentInfo: {
+            oltName: treeNode.olt?.name,
+            ponPort: treeNode.odp.ponPortNumber,
+            odpCode: treeNode.odp.code,
+            portNumber: client.odpPort,
+          },
+        });
+
+        // Link: ODP -> Client (Dropcore)
+        calculatedLinks.push({
+          id: `link-odp-client-${client.id}`,
+          sourceId: `node-odp-${treeNode.odp.id}`,
+          targetId: `node-client-${client.id}`,
+          source: { x: treeNode.x, y: treeNode.y },
+          target: { x: client._x, y: clientLayerY },
+          type: "DROPCORE",
+          label: `Port ${client.odpPort || cIdx + 1}`,
+          status: clientLinkStatus,
+          signalDbm: isCust ? client.signalDbm : null,
+        });
+      });
+
+      // Recurse for child trees
+      for (const child of treeNode.children) {
+        renderOdpTree(child);
+      }
+    }
+
+    // 3. Position OLTs and their ODP trees
+    let currentXCursor = 80;
+
     for (const oltBox of oltBoxes) {
       // Add OLT Node
       calculatedNodes.push({
@@ -320,7 +516,7 @@ export default function CiscoPacketTracerCanvas({
         data: oltBox.olt,
       });
 
-      // Link: Router -> OLT (link to assigned router or core)
+      // Link: Router -> OLT
       let attachedRouter = oltBox.olt.routerId ? routerMap[oltBox.olt.routerId] : undefined;
       if (!attachedRouter) {
         attachedRouter = coreRouter ? routerMap[coreRouter.id] : Object.values(routerMap)[0];
@@ -339,115 +535,25 @@ export default function CiscoPacketTracerCanvas({
         });
       }
 
-      // Position ODPs under this OLT
-      let currentOdpX = currentOltX;
-
-      for (const odpBox of oltBox.odpBoxes) {
-        odpBox.x = currentOdpX + odpBox.width / 2;
-
-        // Add ODP Node
-        calculatedNodes.push({
-          id: `node-odp-${odpBox.odp.id}`,
-          type: "ODP",
-          label: odpBox.odp.code,
-          sublabel: odpBox.odp.parentOdp
-            ? `ODP ${odpBox.odp.parentOdp.code} (P${odpBox.odp.parentOdpPort || 1})`
-            : `Splitter 1:${odpBox.odp.splitterCapacity}`,
-          extra: odpBox.odp.opticalPowerDbm
-            ? `${odpBox.odp.opticalPowerDbm} dBm`
-            : "ODP Box",
-          signalDbm: odpBox.odp.opticalPowerDbm,
-          x: odpBox.x,
-          y: LAYER_Y.ODP,
-          data: odpBox.odp,
-          parentInfo: {
-            oltName: oltBox.olt.name,
-            ponPort: odpBox.odp.ponPortNumber,
-            odpCode: odpBox.odp.parentOdp?.code,
-            portNumber: odpBox.odp.parentOdpPort,
-          },
-        });
-
-        // Link: OLT -> ODP (Feeder PON)
-        const odpSignal = odpBox.odp.opticalPowerDbm;
-        let odpLinkStatus: LayoutLink["status"] = "NORMAL";
-        if (odpSignal !== null && odpSignal !== undefined) {
-          if (odpSignal < -24) odpLinkStatus = "CRITICAL";
-          else if (odpSignal < -20) odpLinkStatus = "WARNING";
-        }
-
-        calculatedLinks.push({
-          id: `link-olt-odp-${odpBox.odp.id}`,
-          sourceId: `node-olt-${oltBox.olt.id}`,
-          targetId: `node-odp-${odpBox.odp.id}`,
-          source: { x: oltBox.x, y: LAYER_Y.OLT },
-          target: { x: odpBox.x, y: LAYER_Y.ODP },
-          type: "PON_FEEDER",
-          label: `PON ${odpBox.odp.ponPortNumber}`,
-          status: odpLinkStatus,
-          signalDbm: odpSignal,
-        });
-
-        // Position Clients under this ODP
-        const clientCount = odpBox.clients.length;
-        if (clientCount > 0) {
-          const clientTotalSpan = (clientCount - 1) * CLIENT_WIDTH;
-          const clientStartX = odpBox.x - clientTotalSpan / 2;
-
-          odpBox.clients.forEach((client, cIdx) => {
-            const clientX = clientStartX + cIdx * CLIENT_WIDTH;
-            const isCust = client._clientType === "CUSTOMER";
-
-            const clientSignal = isCust ? client.signalDbm : odpSignal;
-            let clientLinkStatus: LayoutLink["status"] = "NORMAL";
-            if (clientSignal !== null && clientSignal !== undefined) {
-              if (clientSignal < -24) clientLinkStatus = "CRITICAL";
-              else if (clientSignal < -20) clientLinkStatus = "WARNING";
-            }
-            if (isCust && client.status === "INACTIVE") {
-              clientLinkStatus = "OFFLINE";
-            }
-
-            calculatedNodes.push({
-              id: `node-client-${client.id}`,
-              type: isCust ? "CUSTOMER" : "PARTNER",
-              label: client.name,
-              sublabel: isCust
-                ? client.packageName || "PPPoE Home"
-                : `Mitra (${client.ownerName || "Hotspot"})`,
-              extra: client.odpPort ? `Port ${client.odpPort}` : undefined,
-              signalDbm: isCust ? client.signalDbm : null,
-              status: isCust ? client.status : "ACTIVE",
-              x: clientX,
-              y: LAYER_Y.CLIENT,
-              data: client,
-              parentInfo: {
-                oltName: oltBox.olt.name,
-                ponPort: odpBox.odp.ponPortNumber,
-                odpCode: odpBox.odp.code,
-                portNumber: client.odpPort,
-              },
-            });
-
-            // Link: ODP -> Client (Dropcore)
-            calculatedLinks.push({
-              id: `link-odp-client-${client.id}`,
-              sourceId: `node-odp-${odpBox.odp.id}`,
-              targetId: `node-client-${client.id}`,
-              source: { x: odpBox.x, y: LAYER_Y.ODP },
-              target: { x: clientX, y: LAYER_Y.CLIENT },
-              type: "DROPCORE",
-              label: `Port ${client.odpPort || cIdx + 1}`,
-              status: clientLinkStatus,
-              signalDbm: isCust ? client.signalDbm : null,
-            });
-          });
-        }
-
-        currentOdpX += odpBox.width;
+      // Layout ODP trees under this OLT
+      let oltOdpStartX = currentXCursor;
+      for (const tree of oltBox.odpTrees) {
+        layoutOdpTree(tree, oltOdpStartX);
+        renderOdpTree(tree);
+        oltOdpStartX += tree.width;
       }
 
-      currentOltX += oltBox.width;
+      currentXCursor += oltBox.width;
+    }
+
+    // 4. Standalone ODP Trees
+    if (standaloneTrees.length > 0) {
+      let standaloneStartX = currentXCursor + 40;
+      for (const tree of standaloneTrees) {
+        layoutOdpTree(tree, standaloneStartX);
+        renderOdpTree(tree);
+        standaloneStartX += tree.width;
+      }
     }
 
     return {
@@ -456,7 +562,7 @@ export default function CiscoPacketTracerCanvas({
       canvasWidth: totalNetworkWidth,
       canvasHeight: totalNetworkHeight,
     };
-  }, [displayOlts, routers, isps]);
+  }, [displayOlts, unassignedOdps, routers, isps]);
 
   // Combined node positions map (Custom position if dragged, otherwise default layout)
   const posMap = useMemo(() => {
@@ -583,6 +689,7 @@ export default function CiscoPacketTracerCanvas({
     if (!showSignalLights) {
       if (link.type === "FIBER_TRUNK") return "#F59E0B";
       if (link.type === "PON_FEEDER") return "#0B4EA2";
+      if (link.type === "CASCADE") return "#7C3AED";
       return "#475569";
     }
 
@@ -597,6 +704,7 @@ export default function CiscoPacketTracerCanvas({
       default:
         if (link.type === "FIBER_TRUNK") return "#10B981";
         if (link.type === "PON_FEEDER") return "#2563EB";
+        if (link.type === "CASCADE") return "#A855F7";
         return "#059669";
     }
   };
@@ -766,7 +874,11 @@ export default function CiscoPacketTracerCanvas({
 
               const strokeColor = getLinkColor(link);
               const strokeWidth =
-                link.type === "FIBER_TRUNK" ? 3.5 : link.type === "PON_FEEDER" ? 2.5 : 1.8;
+                link.type === "FIBER_TRUNK"
+                  ? 3.5
+                  : link.type === "PON_FEEDER" || link.type === "CASCADE"
+                  ? 2.5
+                  : 1.8;
 
               return (
                 <g key={link.id} className="transition-all duration-75">
@@ -920,15 +1032,30 @@ export default function CiscoPacketTracerCanvas({
 
                     {/* 4. ODP SPLITTER BOX (Outdoor Distribution Node) */}
                     {node.type === "ODP" && (
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-950 to-slate-900 border-2 border-blue-400 flex flex-col items-center justify-center text-blue-300 shadow-lg shadow-blue-950/30 relative">
-                        <Network className="w-6 h-6 text-blue-200" />
-                        <span className="text-[8px] font-mono font-bold text-blue-300 mt-0.5">
-                          1:{node.data.splitterCapacity}
+                      <div
+                        className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${
+                          node.data?.parentOdpId
+                            ? "from-indigo-950 via-purple-950 to-slate-900 border-2 border-purple-400 text-purple-300 shadow-lg shadow-purple-950/40"
+                            : "from-blue-950 to-slate-900 border-2 border-blue-400 text-blue-300 shadow-lg shadow-blue-950/30"
+                        } flex flex-col items-center justify-center relative`}
+                      >
+                        <Radio
+                          className={`w-5 h-5 ${
+                            node.data?.parentOdpId ? "text-purple-300" : "text-blue-200"
+                          }`}
+                        />
+                        <span className="text-[8px] font-mono font-bold mt-0.5">
+                          1:{node.data?.splitterCapacity || 8}
                         </span>
+                        {node.data?.parentOdpId && (
+                          <span className="absolute -bottom-1 text-[7px] font-bold px-1 rounded bg-purple-900/90 text-purple-200 border border-purple-400">
+                            SUB
+                          </span>
+                        )}
                         <span
                           className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-slate-900 ${
                             node.signalDbm && node.signalDbm < -24
-                              ? "bg-rose-500"
+                              ? "bg-rose-500 animate-ping"
                               : node.signalDbm && node.signalDbm < -20
                               ? "bg-amber-400"
                               : "bg-emerald-400"

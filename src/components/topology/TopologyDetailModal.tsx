@@ -163,15 +163,48 @@ export default function TopologyDetailModal({
               <div>
                 <span className="text-slate-400 block text-[11px]">Port Terpakai:</span>
                 <span className="font-semibold text-slate-800">
-                  {(data.homeCustomers?.length || 0) + (data.hotspotPartners?.length || 0)} dari {data.splitterCapacity} Port
+                  {(data.homeCustomers?.length || 0) +
+                    (data.hotspotPartners?.length || 0) +
+                    (data.childOdps?.length || 0)}{" "}
+                  dari {data.splitterCapacity} Port
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Sisa Port Kosong:</span>
                 <span className="font-bold text-emerald-600">
-                  {Math.max(0, data.splitterCapacity - ((data.homeCustomers?.length || 0) + (data.hotspotPartners?.length || 0)))} Port Tersedia
+                  {Math.max(
+                    0,
+                    data.splitterCapacity -
+                      ((data.homeCustomers?.length || 0) +
+                        (data.hotspotPartners?.length || 0) +
+                        (data.childOdps?.length || 0))
+                  )}{" "}
+                  Port Tersedia
                 </span>
               </div>
+              {data.childOdps && data.childOdps.length > 0 && (
+                <div className="col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
+                  <span className="text-slate-400 block text-[11px] font-semibold">
+                    ODP Cabang yang Terhubung (Splitter Bertingkat):
+                  </span>
+                  <div className="space-y-1">
+                    {data.childOdps.map((ch: any) => (
+                      <div
+                        key={ch.id}
+                        className="p-2 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between text-xs"
+                      >
+                        <span className="font-bold text-indigo-900">
+                          Port {ch.parentOdpPort || 1} → ODP {ch.code}
+                        </span>
+                        <span className="text-[11px] text-indigo-700">
+                          Splitter 1:{ch.splitterCapacity}
+                          {ch.opticalPowerDbm ? ` (${ch.opticalPowerDbm} dBm)` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {data.coordinates && (
                 <div className="col-span-2">
                   <span className="text-slate-400 block text-[11px]">Koordinat Tiang:</span>

@@ -59,7 +59,9 @@ export default function TopologyClientView({
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOltFilter, setSelectedOltFilter] = useState<string>("ALL");
-  const [endpointTypeFilter, setEndpointTypeFilter] = useState<"ALL" | "CUSTOMER" | "PARTNER" | "EMPTY">("ALL");
+  const [endpointTypeFilter, setEndpointTypeFilter] = useState<
+    "ALL" | "CUSTOMER" | "PARTNER" | "ODP" | "EMPTY"
+  >("ALL");
 
   // Node detail modal
   const [selectedNodeForDetail, setSelectedNodeForDetail] =
@@ -373,6 +375,17 @@ export default function TopologyClientView({
             </button>
             <button
               type="button"
+              onClick={() => setEndpointTypeFilter("ODP")}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                endpointTypeFilter === "ODP"
+                  ? "bg-indigo-700 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Splitter Cabang
+            </button>
+            <button
+              type="button"
               onClick={() => setEndpointTypeFilter("EMPTY")}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
                 endpointTypeFilter === "EMPTY"
@@ -402,8 +415,15 @@ export default function TopologyClientView({
       {/* 4. VIEW 2: PORT MATRIX GRID */}
       {viewMode === "GRID" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {olts.map((olt) =>
+          {filteredOlts.map((olt) =>
             olt.odpNodes.map((odp: any) => {
+              const childOdpsMapped = (odp.childOdps || []).map((ch: any) => ({
+                ...ch,
+                name: `ODP ${ch.code}`,
+                _clientType: "ODP",
+                odpPort: ch.parentOdpPort,
+              }));
+
               const allConnected = [
                 ...odp.homeCustomers.map((c: any) => ({
                   ...c,
@@ -413,6 +433,7 @@ export default function TopologyClientView({
                   ...p,
                   _clientType: "PARTNER",
                 })),
+                ...childOdpsMapped,
               ];
 
               const portMap: Record<number, any> = {};
@@ -434,7 +455,7 @@ export default function TopologyClientView({
                           {odp.code}
                         </h4>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
-                          PON {odp.ponPortNumber}
+                          {odp.parentOdp ? `Sub-ODP (P${odp.parentOdpPort || 1})` : `PON ${odp.ponPortNumber}`}
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 mt-0.5">
@@ -455,6 +476,8 @@ export default function TopologyClientView({
                       {Array.from({ length: odp.splitterCapacity }).map((_, idx) => {
                         const portNum = idx + 1;
                         const client = portMap[portNum];
+                        const isOdp = client?._clientType === "ODP";
+                        const isCust = client?._clientType === "CUSTOMER";
 
                         return (
                           <div
@@ -462,7 +485,7 @@ export default function TopologyClientView({
                             onClick={() => {
                               if (client) {
                                 setSelectedNodeForDetail({
-                                  type: client._clientType,
+                                  type: isOdp ? "ODP" : client._clientType,
                                   data: client,
                                   parentInfo: {
                                     oltName: olt.name,
@@ -474,21 +497,37 @@ export default function TopologyClientView({
                               }
                             }}
                             className={`p-2 rounded-xl border text-center transition-all ${
-                              client
+                              isOdp
+                                ? "bg-indigo-50 border-indigo-200 hover:bg-indigo-100 cursor-pointer shadow-3xs text-indigo-950"
+                                : isCust
                                 ? "bg-blue-50 border-blue-200 hover:bg-blue-100/80 cursor-pointer shadow-3xs"
+                                : client
+                                ? "bg-amber-50 border-amber-200 hover:bg-amber-100 cursor-pointer shadow-3xs text-amber-950"
                                 : "bg-slate-50 border-slate-200/60 text-slate-400"
                             }`}
                           >
-                            <div className="text-[10px] font-bold text-slate-500">
-                              Port {portNum}
+                            <div className="text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1">
+                              {isOdp && <Radio className="w-2.5 h-2.5 text-indigo-600" />}
+                              <span>Port {portNum}</span>
                             </div>
                             <div
                               className={`text-[11px] font-extrabold truncate mt-0.5 ${
-                                client ? "text-[#072255]" : "text-slate-400"
+                                isOdp
+                                  ? "text-indigo-900"
+                                  : isCust
+                                  ? "text-[#072255]"
+                                  : client
+                                  ? "text-amber-900"
+                                  : "text-slate-400"
                               }`}
                             >
-                              {client ? client.name.split(" ")[0] : "Kosong"}
+                              {client ? (isOdp ? `ODP ${client.code}` : client.name.split(" ")[0]) : "Kosong"}
                             </div>
+                            {isOdp && (
+                              <div className="text-[8px] font-semibold text-indigo-600 truncate">
+                                1:{client.splitterCapacity}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -545,8 +584,16 @@ export default function TopologyClientView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {olts.flatMap((olt) =>
+                {filteredOlts.flatMap((olt) =>
                   olt.odpNodes.flatMap((odp: any) => {
+                    const childOdpsMapped = (odp.childOdps || []).map((ch: any) => ({
+                      ...ch,
+                      name: `ODP ${ch.code}`,
+                      _clientType: "ODP",
+                      odpPort: ch.parentOdpPort,
+                      phone: "-",
+                    }));
+
                     const allConnected = [
                       ...odp.homeCustomers.map((c: any) => ({
                         ...c,
@@ -556,15 +603,37 @@ export default function TopologyClientView({
                         ...p,
                         _clientType: "PARTNER",
                       })),
+                      ...childOdpsMapped,
                     ];
 
-                    return allConnected.map((client: any) => (
-                      <tr key={client.id} className="hover:bg-slate-50/80 transition-colors">
+                    const filteredConnected = allConnected.filter((client: any) => {
+                      if (endpointTypeFilter !== "ALL" && client._clientType !== endpointTypeFilter) {
+                        return false;
+                      }
+                      if (searchQuery.trim()) {
+                        const q = searchQuery.toLowerCase();
+                        const matchName = client.name?.toLowerCase().includes(q);
+                        const matchOdp = odp.code?.toLowerCase().includes(q);
+                        const matchOlt = olt.name?.toLowerCase().includes(q);
+                        return matchName || matchOdp || matchOlt;
+                      }
+                      return true;
+                    });
+
+                    return filteredConnected.map((client: any) => (
+                      <tr key={`${odp.id}-${client.id || client.code}`} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-3.5 font-bold text-[#072255]">
-                          <div>{client.name}</div>
+                          <div className="flex items-center gap-1.5">
+                            {client._clientType === "ODP" && (
+                              <Radio className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                            )}
+                            <span>{client.name}</span>
+                          </div>
                           <div className="text-[10px] text-slate-400 font-normal">
                             {client._clientType === "CUSTOMER"
                               ? client.packageName
+                              : client._clientType === "ODP"
+                              ? `Splitter Cabang (1:${client.splitterCapacity})`
                               : client.ownerName}
                           </div>
                         </td>
@@ -573,10 +642,16 @@ export default function TopologyClientView({
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               client._clientType === "CUSTOMER"
                                 ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                : client._clientType === "ODP"
+                                ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
                             }`}
                           >
-                            {client._clientType === "CUSTOMER" ? "Rumahan" : "Hotspot"}
+                            {client._clientType === "CUSTOMER"
+                              ? "Rumahan"
+                              : client._clientType === "ODP"
+                              ? "Splitter Cabang"
+                              : "Hotspot"}
                           </span>
                         </td>
                         <td className="px-4 py-3.5 text-slate-700">{olt.name}</td>
@@ -593,18 +668,20 @@ export default function TopologyClientView({
                           {getSignalBadge(
                             client._clientType === "CUSTOMER"
                               ? client.signalDbm
+                              : client._clientType === "ODP"
+                              ? client.opticalPowerDbm
                               : odp.opticalPowerDbm
                           )}
                         </td>
                         <td className="px-4 py-3.5 font-mono text-slate-600">
-                          {client.phone}
+                          {client.phone || "-"}
                         </td>
                         <td className="px-4 py-3.5 text-right">
                           <button
                             type="button"
                             onClick={() =>
                               setSelectedNodeForDetail({
-                                type: client._clientType,
+                                type: client._clientType === "ODP" ? "ODP" : client._clientType,
                                 data: client,
                                 parentInfo: {
                                   oltName: olt.name,

@@ -40,7 +40,20 @@ export async function getTopologyData() {
               orderBy: [{ ponPortNumber: "asc" }, { code: "asc" }],
               include: {
                 parentOdp: true,
-                childOdps: true,
+                childOdps: {
+                  include: {
+                    parentOdp: true,
+                    childOdps: true,
+                    homeCustomers: {
+                      include: { devices: true },
+                      orderBy: { odpPort: "asc" },
+                    },
+                    hotspotPartners: {
+                      include: { devices: true },
+                      orderBy: { odpPort: "asc" },
+                    },
+                  },
+                },
                 homeCustomers: {
                   include: {
                     devices: true,
@@ -62,7 +75,20 @@ export async function getTopologyData() {
           orderBy: { code: "asc" },
           include: {
             parentOdp: true,
-            childOdps: true,
+            childOdps: {
+              include: {
+                parentOdp: true,
+                childOdps: true,
+                homeCustomers: {
+                  include: { devices: true },
+                  orderBy: { odpPort: "asc" },
+                },
+                hotspotPartners: {
+                  include: { devices: true },
+                  orderBy: { odpPort: "asc" },
+                },
+              },
+            },
             homeCustomers: {
               include: {
                 devices: true,
@@ -107,7 +133,8 @@ export async function getTopologyData() {
 
     for (const odp of unassignedOdps) {
       totalCapacity += odp.splitterCapacity;
-      totalUsedPorts += odp.homeCustomers.length + odp.hotspotPartners.length;
+      totalUsedPorts +=
+        odp.homeCustomers.length + odp.hotspotPartners.length + (odp.childOdps?.length || 0);
       totalCustomers += odp.homeCustomers.length;
       activeCustomers += odp.homeCustomers.filter((c) => c.status === "ACTIVE").length;
       isolatedCustomers += odp.homeCustomers.filter((c) => c.status === "ISOLATED").length;
@@ -125,7 +152,8 @@ export async function getTopologyData() {
 
       for (const odp of olt.odpNodes) {
         totalCapacity += odp.splitterCapacity;
-        totalUsedPorts += odp.homeCustomers.length + odp.hotspotPartners.length;
+        totalUsedPorts +=
+          odp.homeCustomers.length + odp.hotspotPartners.length + (odp.childOdps?.length || 0);
         totalCustomers += odp.homeCustomers.length;
         activeCustomers += odp.homeCustomers.filter((c) => c.status === "ACTIVE").length;
         isolatedCustomers += odp.homeCustomers.filter((c) => c.status === "ISOLATED").length;
