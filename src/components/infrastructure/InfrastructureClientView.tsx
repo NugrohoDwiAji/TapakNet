@@ -1019,6 +1019,7 @@ export default function InfrastructureClientView({
       {showAddOdp && (
         <AddOdpModal
           olts={olts}
+          odps={odps}
           availableDevices={devices}
           onClose={() => setShowAddOdp(false)}
           onSuccess={handleRefresh}
@@ -1136,6 +1137,7 @@ export default function InfrastructureClientView({
         <EditOdpModal
           odp={selectedOdpForEdit}
           olts={olts}
+          odps={odps}
           onClose={() => setSelectedOdpForEdit(null)}
           onSuccess={handleRefresh}
         />

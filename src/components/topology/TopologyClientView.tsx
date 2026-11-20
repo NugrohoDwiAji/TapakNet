@@ -438,7 +438,9 @@ export default function TopologyClientView({
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {olt.name} • Splitter 1:{odp.splitterCapacity}
+                        {odp.parentOdp
+                          ? `Uplink: ODP ${odp.parentOdp.code} (P${odp.parentOdpPort || 1}) • Splitter 1:${odp.splitterCapacity}`
+                          : `${olt.name} • Splitter 1:${odp.splitterCapacity}`}
                       </p>
                     </div>
                     {getSignalBadge(odp.opticalPowerDbm)}
@@ -504,7 +506,12 @@ export default function TopologyClientView({
                         setSelectedNodeForDetail({
                           type: "ODP",
                           data: odp,
-                          parentInfo: { oltName: olt.name, ponPort: odp.ponPortNumber },
+                          parentInfo: {
+                            oltName: olt.name,
+                            ponPort: odp.ponPortNumber,
+                            odpCode: odp.parentOdp?.code,
+                            portNumber: odp.parentOdpPort,
+                          },
                         })
                       }
                       className="text-[#0B4EA2] hover:underline font-bold text-xs"

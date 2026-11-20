@@ -350,7 +350,9 @@ export default function CiscoPacketTracerCanvas({
           id: `node-odp-${odpBox.odp.id}`,
           type: "ODP",
           label: odpBox.odp.code,
-          sublabel: `Splitter 1:${odpBox.odp.splitterCapacity}`,
+          sublabel: odpBox.odp.parentOdp
+            ? `ODP ${odpBox.odp.parentOdp.code} (P${odpBox.odp.parentOdpPort || 1})`
+            : `Splitter 1:${odpBox.odp.splitterCapacity}`,
           extra: odpBox.odp.opticalPowerDbm
             ? `${odpBox.odp.opticalPowerDbm} dBm`
             : "ODP Box",
@@ -361,6 +363,8 @@ export default function CiscoPacketTracerCanvas({
           parentInfo: {
             oltName: oltBox.olt.name,
             ponPort: odpBox.odp.ponPortNumber,
+            odpCode: odpBox.odp.parentOdp?.code,
+            portNumber: odpBox.odp.parentOdpPort,
           },
         });
 

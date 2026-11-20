@@ -332,6 +332,20 @@ export async function getOdpNodes() {
   const odps = await prisma.odpNode.findMany({
     include: {
       olt: true,
+      parentOdp: {
+        include: {
+          olt: true,
+        },
+      },
+      childOdps: {
+        select: {
+          id: true,
+          code: true,
+          parentOdpPort: true,
+          opticalPowerDbm: true,
+          splitterCapacity: true,
+        },
+      },
       devices: true,
       homeCustomers: {
         select: {
@@ -365,6 +379,7 @@ export async function getOdpNodes() {
     for (let p = 1; p <= capacity; p++) {
       const customer = odp.homeCustomers.find((c) => c.odpPort === p);
       const partner = odp.hotspotPartners.find((hp) => hp.odpPort === p);
+      const childOdp = odp.childOdps.find((co) => co.parentOdpPort === p);
 
       if (customer) {
         portMap.push({
@@ -387,6 +402,17 @@ export async function getOdpNodes() {
           packageName: "Titik Hotspot",
           status: "ACTIVE",
           signalDbm: null,
+        });
+      } else if (childOdp) {
+        portMap.push({
+          portNumber: p,
+          isOccupied: true,
+          type: "ODP" as const,
+          occupantName: childOdp.code,
+          occupantId: childOdp.id,
+          packageName: `Sub-ODP (1:${childOdp.splitterCapacity})`,
+          status: "ACTIVE",
+          signalDbm: childOdp.opticalPowerDbm,
         });
       } else {
         portMap.push({
@@ -416,23 +442,47 @@ export async function getOdpNodes() {
 
 export async function createOdpNode(data: {
   code: string;
-  oltId?: string;
+  oltId?: string | null;
   ponPortNumber?: number;
+  parentOdpId?: string | null;
+  parentOdpPort?: number | null;
   splitterCapacity: number;
   coordinates?: string;
   opticalPowerDbm?: number;
   notes?: string;
   inventoryDeviceId?: string;
 }) {
+  let finalOltId = data.oltId || null;
+  let finalPonPort = data.ponPortNumber ? Number(data.ponPortNumber) : 1;
+
+  // If connected to parent ODP, inherit parent's OLT info if not provided
+  if (data.parentOdpId) {
+    const parent = await prisma.odpNode.findUnique({
+      where: { id: data.parentOdpId },
+      select: { oltId: true, ponPortNumber: true },
+    });
+    if (parent && parent.oltId && !finalOltId) {
+      finalOltId = parent.oltId;
+      finalPonPort = parent.ponPortNumber || 1;
+    }
+  }
+
   const odp = await prisma.$transaction(async (tx) => {
     const createdOdp = await tx.odpNode.create({
       data: {
         code: data.code.trim().toUpperCase(),
-        oltId: data.oltId || null,
-        ponPortNumber: Number(data.ponPortNumber || 1),
+        oltId: finalOltId,
+        ponPortNumber: finalPonPort,
+        parentOdpId: data.parentOdpId || null,
+        parentOdpPort: data.parentOdpPort ? Number(data.parentOdpPort) : null,
         splitterCapacity: Number(data.splitterCapacity || 8),
         coordinates: data.coordinates || null,
-        opticalPowerDbm: data.opticalPowerDbm ? Number(data.opticalPowerDbm) : null,
+        opticalPowerDbm:
+          data.opticalPowerDbm !== undefined &&
+          data.opticalPowerDbm !== null &&
+          !isNaN(Number(data.opticalPowerDbm))
+            ? Number(data.opticalPowerDbm)
+            : null,
         notes: data.notes || null,
       },
     });
@@ -461,15 +511,58 @@ export async function updateOdpNode(
     code?: string;
     oltId?: string | null;
     ponPortNumber?: number;
+    parentOdpId?: string | null;
+    parentOdpPort?: number | null;
     splitterCapacity?: number;
     coordinates?: string;
     opticalPowerDbm?: number | null;
     notes?: string;
   }
 ) {
+  // Prevent circular dependency: parent cannot be itself
+  if (data.parentOdpId && data.parentOdpId === id) {
+    throw new Error("ODP tidak dapat terhubung ke dirinya sendiri");
+  }
+
+  // Prevent cycle: parent cannot be one of its descendants
+  if (data.parentOdpId) {
+    let currentCheckId: string | null = data.parentOdpId;
+    while (currentCheckId) {
+      const parentNode: { parentOdpId: string | null } | null = await prisma.odpNode.findUnique({
+        where: { id: currentCheckId },
+        select: { parentOdpId: true },
+      });
+      if (!parentNode) break;
+      if (parentNode.parentOdpId === id) {
+        throw new Error("Terjadi siklus koneksi: ODP induk tidak boleh cabang dari ODP ini");
+      }
+      currentCheckId = parentNode.parentOdpId;
+    }
+  }
+
+  let finalOltId = data.oltId;
+  let finalPonPort = data.ponPortNumber;
+
+  if (data.parentOdpId) {
+    const parent = await prisma.odpNode.findUnique({
+      where: { id: data.parentOdpId },
+      select: { oltId: true, ponPortNumber: true },
+    });
+    if (parent && parent.oltId && (finalOltId === undefined || finalOltId === null)) {
+      finalOltId = parent.oltId;
+      finalPonPort = parent.ponPortNumber || 1;
+    }
+  }
+
   const odp = await prisma.odpNode.update({
     where: { id },
-    data,
+    data: {
+      ...data,
+      oltId: finalOltId,
+      ponPortNumber: finalPonPort,
+      parentOdpId: data.parentOdpId !== undefined ? data.parentOdpId : undefined,
+      parentOdpPort: data.parentOdpPort !== undefined ? data.parentOdpPort : undefined,
+    },
   });
   safeRevalidate("/infrastructure");
   safeRevalidate("/topology");
@@ -497,6 +590,10 @@ export async function deleteOdpNode(id: string) {
     await tx.hotspotPartner.updateMany({
       where: { odpId: id },
       data: { odpId: null, odpPort: null },
+    });
+    await tx.odpNode.updateMany({
+      where: { parentOdpId: id },
+      data: { parentOdpId: null, parentOdpPort: null },
     });
     await tx.odpNode.delete({ where: { id } });
   });

@@ -328,6 +328,8 @@ model OdpNode {
   code             String   @unique // e.g. "ODP-01-A", "ODP-02-B"
   oltId            String?
   ponPortNumber    Int      @default(1)
+  parentOdpId      String?
+  parentOdpPort    Int?
   splitterCapacity Int      @default(8) // 8 or 16 ports
   coordinates      String?  // "-8.5833, 116.1167"
   opticalPowerDbm  Float?   // Redaman ODP, e.g. -18.2 dBm
@@ -336,11 +338,14 @@ model OdpNode {
   updatedAt        DateTime @updatedAt
 
   olt              OltDevice?       @relation(fields: [oltId], references: [id], onDelete: SetNull)
+  parentOdp        OdpNode?         @relation("OdpHierarchy", fields: [parentOdpId], references: [id], onDelete: SetNull)
+  childOdps        OdpNode[]        @relation("OdpHierarchy")
   homeCustomers    HomeCustomer[]
   hotspotPartners  HotspotPartner[]
   devices          InventoryDevice[]
 
   @@index([oltId])
+  @@index([parentOdpId])
 }
 
 model InventoryDevice {

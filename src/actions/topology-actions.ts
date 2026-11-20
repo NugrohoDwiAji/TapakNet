@@ -39,6 +39,8 @@ export async function getTopologyData() {
             odpNodes: {
               orderBy: [{ ponPortNumber: "asc" }, { code: "asc" }],
               include: {
+                parentOdp: true,
+                childOdps: true,
                 homeCustomers: {
                   include: {
                     devices: true,
@@ -59,6 +61,8 @@ export async function getTopologyData() {
           where: { oltId: null },
           orderBy: { code: "asc" },
           include: {
+            parentOdp: true,
+            childOdps: true,
             homeCustomers: {
               include: {
                 devices: true,

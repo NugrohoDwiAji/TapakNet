@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Radio, Signal, Copy, Check, Users, Wifi, Edit2, Trash2, MapPin, HardDrive } from "lucide-react";
+import { X, Radio, Signal, Copy, Check, HardDrive } from "lucide-react";
 import { formatDateTimeIndo } from "@/lib/utils";
 import { useState } from "react";
 
@@ -58,11 +58,20 @@ export default function OdpDetailModal({
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs">
           <div>
             <span className="text-[10px] text-slate-400 font-semibold block uppercase">
-              Uplink Server OLT:
+              {odp.parentOdp ? "Uplink ODP / Splitter Induk:" : "Uplink Server OLT:"}
             </span>
             <span className="font-bold text-[#072255]">
-              {odp.olt ? `${odp.olt.name} (Port PON ${odp.ponPortNumber})` : "Direct / Standalone"}
+              {odp.parentOdp
+                ? `ODP ${odp.parentOdp.code} (Port Splitter ${odp.parentOdpPort || 1})`
+                : odp.olt
+                ? `${odp.olt.name} (Port PON ${odp.ponPortNumber})`
+                : "Direct / Standalone"}
             </span>
+            {odp.parentOdp && odp.parentOdp.olt && (
+              <span className="text-[11px] text-slate-500 block mt-0.5">
+                via {odp.parentOdp.olt.name} (PON {odp.parentOdp.ponPortNumber})
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {odp.opticalPowerDbm !== null && (
@@ -91,6 +100,34 @@ export default function OdpDetailModal({
             <div className="text-slate-600 flex justify-between text-[11px] pt-1">
               <span>Model: {odp.devices[0].brandModel}</span>
               {odp.devices[0].macAddress && <span>MAC: {odp.devices[0].macAddress}</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Connected Child ODPs (if any) */}
+        {odp.childOdps && odp.childOdps.length > 0 && (
+          <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200 text-xs space-y-2">
+            <span className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5" /> ODP / Splitter Cabang yang Terhubung ({odp.childOdps.length})
+            </span>
+            <div className="space-y-1.5">
+              {odp.childOdps.map((child: any) => (
+                <div
+                  key={child.id}
+                  className="p-2.5 rounded-xl bg-white border border-indigo-100 flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200">
+                      Port {child.parentOdpPort || 1}
+                    </span>
+                    <span className="font-bold text-slate-800">ODP {child.code}</span>
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Splitter 1:{child.splitterCapacity}
+                    {child.opticalPowerDbm ? ` • ${child.opticalPowerDbm} dBm` : ""}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -158,7 +195,13 @@ export default function OdpDetailModal({
                     </span>
                     <span className="font-bold text-slate-800">{port.occupantName}</span>
                     <span className="text-[10px] text-slate-400">
-                      ({port.type === "CUSTOMER" ? "Pelanggan" : "Hotspot"})
+                      (
+                      {port.type === "CUSTOMER"
+                        ? "Pelanggan"
+                        : port.type === "ODP"
+                        ? "Sub-ODP / Splitter Cabang"
+                        : "Hotspot"}
+                      )
                     </span>
                   </div>
 
@@ -192,7 +235,6 @@ export default function OdpDetailModal({
               }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-blue-50 text-[#0B4EA2] hover:bg-blue-100 transition-colors"
             >
-              <Edit2 className="w-3.5 h-3.5" />
               <span>Edit ODP</span>
             </button>
 
@@ -203,7 +245,6 @@ export default function OdpDetailModal({
               }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
             >
-              <Trash2 className="w-3.5 h-3.5" />
               <span>Hapus ODP</span>
             </button>
           </div>

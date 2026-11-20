@@ -1,6 +1,6 @@
 "use client";
 
-import { Radio, Users, Wifi, CheckCircle2, AlertCircle, Signal, Eye, Edit2, Trash2 } from "lucide-react";
+import { Radio, Users, Wifi, CheckCircle2, Signal, Eye, Edit2, Trash2 } from "lucide-react";
 
 interface OdpPortVisualizerProps {
   odp: any;
@@ -31,9 +31,22 @@ export default function OdpPortVisualizer({
             </div>
             <div>
               <h4 className="text-base font-bold text-[#072255] font-mono">{odp.code}</h4>
-              <p className="text-xs text-slate-500">
-                {odp.olt ? `${odp.olt.name} (Port PON ${odp.ponPortNumber})` : "Direct / Standalone"}
-              </p>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                {odp.parentOdp ? (
+                  <span className="inline-flex items-center gap-1 font-semibold text-indigo-700 bg-indigo-50/80 px-2 py-0.5 rounded-md border border-indigo-200">
+                    <Radio className="w-3 h-3 text-indigo-600" />
+                    <span>
+                      Uplink: ODP <strong>{odp.parentOdp.code}</strong> (Port Splitter {odp.parentOdpPort || 1})
+                    </span>
+                  </span>
+                ) : odp.olt ? (
+                  <span>
+                    {odp.olt.name} (Port PON {odp.ponPortNumber})
+                  </span>
+                ) : (
+                  <span>Direct / Standalone</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -114,12 +127,15 @@ export default function OdpPortVisualizer({
           {portMap.map((port: any) => {
             if (port.isOccupied) {
               const isCustomer = port.type === "CUSTOMER";
+              const isOdp = port.type === "ODP";
               return (
                 <div
                   key={port.portNumber}
                   className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs transition-all shadow-2xs ${
                     isCustomer
                       ? "bg-blue-50/80 border-blue-200 text-[#072255]"
+                      : isOdp
+                      ? "bg-indigo-50/80 border-indigo-200 text-indigo-950"
                       : "bg-amber-50/80 border-amber-200 text-amber-900"
                   }`}
                 >
@@ -129,6 +145,8 @@ export default function OdpPortVisualizer({
                     </span>
                     {isCustomer ? (
                       <Users className="w-3.5 h-3.5 text-[#0B4EA2]" />
+                    ) : isOdp ? (
+                      <Radio className="w-3.5 h-3.5 text-indigo-600" />
                     ) : (
                       <Wifi className="w-3.5 h-3.5 text-amber-600" />
                     )}
@@ -139,7 +157,7 @@ export default function OdpPortVisualizer({
                   </div>
 
                   <div className="text-[9px] text-slate-500 mt-0.5 truncate">
-                    {port.packageName || (isCustomer ? "Pelanggan" : "Hotspot")}
+                    {port.packageName || (isCustomer ? "Pelanggan" : isOdp ? "ODP Cabang" : "Hotspot")}
                   </div>
 
                   {port.signalDbm && (

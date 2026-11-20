@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --turbo",
     "clean": "rm -rf .next",
-    "build": "prisma generate && next build",
+    "build": "prisma db push && prisma generate && next build",
+    "vercel-build": "prisma db push && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",

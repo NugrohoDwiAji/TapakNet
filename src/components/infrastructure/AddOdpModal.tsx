@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { createOdpNode } from "@/actions/infrastructure-actions";
-import { X, Radio, AlertCircle, HardDrive, CheckCircle2 } from "lucide-react";
+import { X, Radio, AlertCircle, HardDrive, CheckCircle2, Server, Globe } from "lucide-react";
 import { formatRupiah } from "@/lib/utils";
 
 interface AddOdpModalProps {
   olts: any[];
+  odps?: any[];
   availableDevices?: any[];
   onClose: () => void;
   onSuccess: () => void;
@@ -14,15 +15,22 @@ interface AddOdpModalProps {
 
 export default function AddOdpModal({
   olts,
+  odps = [],
   availableDevices = [],
   onClose,
   onSuccess,
 }: AddOdpModalProps) {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [uplinkType, setUplinkType] = useState<"OLT" | "ODP" | "DIRECT">(
+    olts.length > 0 ? "OLT" : odps.length > 0 ? "ODP" : "DIRECT"
+  );
+
   const [formData, setFormData] = useState({
     code: "",
     oltId: olts[0]?.id || "",
     ponPortNumber: "1",
+    parentOdpId: odps[0]?.id || "",
+    parentOdpPort: "1",
     splitterCapacity: "8",
     coordinates: "",
     opticalPowerDbm: "-18.0",
@@ -38,6 +46,7 @@ export default function AddOdpModal({
   const otherDevices = inStockDevices.filter((d) => d.category !== "ODP");
 
   const selectedDevice = inStockDevices.find((d) => d.id === selectedDeviceId);
+  const selectedParentOdp = odps.find((o) => o.id === formData.parentOdpId);
 
   const handleDeviceSelect = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
@@ -45,7 +54,6 @@ export default function AddOdpModal({
 
     const dev = inStockDevices.find((d) => d.id === deviceId);
     if (dev) {
-      // Auto adjust splitter capacity if mentioned in model/notes
       let capacity = formData.splitterCapacity;
       const desc = `${dev.brandModel} ${dev.notes || ""}`.toLowerCase();
       if (desc.includes("1:16") || desc.includes("16 port") || desc.includes("16p")) {
@@ -66,16 +74,48 @@ export default function AddOdpModal({
     }
   };
 
+  const handleParentOdpChange = (newParentId: string) => {
+    const parent = odps.find((o) => o.id === newParentId);
+    const firstFreePort = parent?.portMap?.find((pm: any) => !pm.isOccupied)?.portNumber || 1;
+    setFormData((prev) => ({
+      ...prev,
+      parentOdpId: newParentId,
+      parentOdpPort: firstFreePort.toString(),
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     try {
       setLoading(true);
+
+      let oltId: string | undefined = undefined;
+      let ponPortNumber: number | undefined = undefined;
+      let parentOdpId: string | undefined = undefined;
+      let parentOdpPort: number | undefined = undefined;
+
+      if (uplinkType === "OLT") {
+        oltId = formData.oltId || undefined;
+        ponPortNumber = Number(formData.ponPortNumber) || 1;
+      } else if (uplinkType === "ODP") {
+        if (!formData.parentOdpId) {
+          throw new Error("Silakan pilih ODP / Splitter Induk");
+        }
+        parentOdpId = formData.parentOdpId;
+        parentOdpPort = Number(formData.parentOdpPort) || 1;
+        const parent = odps.find((o) => o.id === formData.parentOdpId);
+        oltId = parent?.oltId || undefined;
+        ponPortNumber = parent?.ponPortNumber || 1;
+      }
+
       await createOdpNode({
         code: formData.code,
-        oltId: formData.oltId || undefined,
-        ponPortNumber: Number(formData.ponPortNumber),
+        oltId,
+        ponPortNumber,
+        parentOdpId,
+        parentOdpPort,
         splitterCapacity: Number(formData.splitterCapacity),
         coordinates: formData.coordinates || undefined,
         opticalPowerDbm: formData.opticalPowerDbm ? Number(formData.opticalPowerDbm) : undefined,
@@ -103,7 +143,7 @@ export default function AddOdpModal({
             <div>
               <h3 className="text-lg font-bold text-[#072255]">Tambah Master ODP</h3>
               <p className="text-xs text-slate-500">
-                Ambil kotak ODP dari inventaris gudang atau input manual
+                Atur koneksi OLT atau cascading ke ODP/Splitter lain
               </p>
             </div>
           </div>
@@ -145,7 +185,8 @@ export default function AddOdpModal({
                 <optgroup label="⭐ Kategori ODP (Kotak Splitter Distribusi)">
                   {odpDevices.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.brandModel} | SN: {d.serialNumber} {d.purchasePrice ? `(${formatRupiah(d.purchasePrice)})` : ""}
+                      {d.brandModel} | SN: {d.serialNumber}{" "}
+                      {d.purchasePrice ? `(${formatRupiah(d.purchasePrice)})` : ""}
                     </option>
                   ))}
                 </optgroup>
@@ -171,7 +212,8 @@ export default function AddOdpModal({
                   <span className="font-mono font-bold text-[#0B4EA2]">SN: {selectedDevice.serialNumber}</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Status alat di gudang akan otomatis berubah menjadi <strong className="text-purple-700 font-semibold">DEPLOYED_INFRA</strong>.
+                  Status alat di gudang akan otomatis berubah menjadi{" "}
+                  <strong className="text-purple-700 font-semibold">DEPLOYED_INFRA</strong>.
                 </p>
               </div>
             ) : (
@@ -204,45 +246,183 @@ export default function AddOdpModal({
                 onChange={(e) => setFormData({ ...formData, splitterCapacity: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2] bg-white font-semibold"
               >
+                <option value="4">4 Port (Splitter 1:4)</option>
                 <option value="8">8 Port (Splitter 1:8)</option>
                 <option value="16">16 Port (Splitter 1:16)</option>
-                <option value="4">4 Port (Splitter 1:4)</option>
                 <option value="24">24 Port (Splitter 1:24)</option>
               </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* UPLINK CONNECTION SELECTOR */}
+          <div className="p-4 rounded-2xl bg-slate-50/90 border border-slate-200 space-y-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Terhubung ke OLT
+              <label className="block text-xs font-bold text-[#072255] mb-1">
+                Pilihan Koneksi Uplink (Terhubung Ke) *
               </label>
-              <select
-                value={formData.oltId}
-                onChange={(e) => setFormData({ ...formData, oltId: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2] bg-white"
-              >
-                <option value="">-- Tanpa OLT / Direct --</option>
-                {olts.map((olt) => (
-                  <option key={olt.id} value={olt.id}>
-                    {olt.name}
-                  </option>
-                ))}
-              </select>
+              <p className="text-[11px] text-slate-500 mb-2.5">
+                Tentukan apakah ODP ini terhubung langsung ke Server OLT atau mencabang dari ODP/Splitter lain
+              </p>
+
+              {/* Uplink Tabs */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/70 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setUplinkType("OLT")}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all ${
+                    uplinkType === "OLT"
+                      ? "bg-white text-[#0B4EA2] shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Server className="w-3.5 h-3.5" />
+                  <span>Ke OLT</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUplinkType("ODP")}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all ${
+                    uplinkType === "ODP"
+                      ? "bg-white text-indigo-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>Ke ODP Lain</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUplinkType("DIRECT")}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all ${
+                    uplinkType === "DIRECT"
+                      ? "bg-white text-slate-800 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Direct / Solo</span>
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Nomor Port PON OLT
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="32"
-                value={formData.ponPortNumber}
-                onChange={(e) => setFormData({ ...formData, ponPortNumber: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2]"
-              />
-            </div>
+
+            {/* Sub-form: Terhubung ke OLT */}
+            {uplinkType === "OLT" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Pilih Server OLT
+                  </label>
+                  <select
+                    value={formData.oltId}
+                    onChange={(e) => setFormData({ ...formData, oltId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2] bg-white font-medium"
+                  >
+                    <option value="">-- Tanpa OLT --</option>
+                    {olts.map((olt) => (
+                      <option key={olt.id} value={olt.id}>
+                        {olt.name} ({olt.ponPortsCount} Port PON)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nomor Port PON OLT
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="32"
+                    value={formData.ponPortNumber}
+                    onChange={(e) => setFormData({ ...formData, ponPortNumber: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0B4EA2] bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Sub-form: Terhubung ke ODP / Splitter Lain */}
+            {uplinkType === "ODP" && (
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Pilih ODP / Splitter Induk *
+                    </label>
+                    <select
+                      value={formData.parentOdpId}
+                      onChange={(e) => handleParentOdpChange(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-indigo-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium text-slate-800"
+                    >
+                      <option value="">-- Pilih ODP / Splitter Lain --</option>
+                      {odps.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.code} (1:{o.splitterCapacity} • Sisa {o.freeCount ?? "?"} port)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Port Splitter ODP Induk
+                    </label>
+                    <select
+                      value={formData.parentOdpPort}
+                      onChange={(e) => setFormData({ ...formData, parentOdpPort: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-indigo-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium text-slate-800"
+                    >
+                      {Array.from({ length: selectedParentOdp?.splitterCapacity || 8 }).map(
+                        (_, idx) => {
+                          const portNum = idx + 1;
+                          const portInfo = selectedParentOdp?.portMap?.find(
+                            (pm: any) => pm.portNumber === portNum
+                          );
+                          const isOccupied = portInfo?.isOccupied;
+                          return (
+                            <option key={portNum} value={portNum}>
+                              Port {portNum}{" "}
+                              {isOccupied
+                                ? `(Terisi: ${portInfo.occupantName})`
+                                : "(Bebas / Tersedia)"}
+                            </option>
+                          );
+                        }
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {selectedParentOdp && (
+                  <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-900 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Induk Terpilih: <strong>{selectedParentOdp.code}</strong></span>
+                      </span>
+                      <span className="font-mono text-[11px] text-indigo-700 font-bold">
+                        1:{selectedParentOdp.splitterCapacity} ({selectedParentOdp.freeCount} Port Bebas)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      {selectedParentOdp.olt
+                        ? `Jalur OLT: ${selectedParentOdp.olt.name} (Port PON ${selectedParentOdp.ponPortNumber})`
+                        : "Status Induk: Standalone"}
+                      {selectedParentOdp.notes ? ` • Lokasi: ${selectedParentOdp.notes}` : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-form: Standalone */}
+            {uplinkType === "DIRECT" && (
+              <p className="text-xs text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200">
+                ODP ini berstatus direct / standalone tanpa upstream langsung dari OLT maupun ODP lain.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
