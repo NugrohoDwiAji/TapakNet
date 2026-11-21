@@ -103,12 +103,16 @@ export async function deleteVoucherPackage(id: string) {
 export async function getHotspotPartners() {
   return await prisma.hotspotPartner.findMany({
     include: {
-      odp: true,
+      odp: {
+        select: { id: true, code: true },
+      },
       stocks: {
         include: { package: true },
       },
       customPricings: true,
-      devices: true,
+      devices: {
+        select: { id: true, brandModel: true, serialNumber: true },
+      },
       settlements: {
         orderBy: { settlementDate: "desc" },
         take: 3,

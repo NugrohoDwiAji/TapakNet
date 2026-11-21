@@ -5,7 +5,7 @@ import {
   TransactionType,
   FinancialCategory,
   DeviceStatus,
-  DeviceCategory,
+  CustomerStatus,
 } from "@prisma/client";
 
 export async function getDashboardData() {
@@ -15,90 +15,135 @@ export async function getDashboardData() {
 
   const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
   const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
+  const sixMonthsAgo = new Date(currentYear, currentMonth - 6, 1);
 
-  // 1. Fetch All Financial Transactions & Group by Month for Cashflow Chart
+  // Execute optimized aggregations and selective queries in parallel
   const [
-    allTransactions,
-    monthlyTransactions,
-    partners,
-    packages,
-    devices,
+    totalIncomeAgg,
+    totalExpenseAgg,
+    monthlyExpenseAgg,
+    monthlyIncomeByCategory,
+    allTimeIncomeByCategory,
+    trendTransactions,
+    deviceStatusCounts,
+    activeCustomersCount,
     odpNodes,
-    homeCustomers,
-    settlementItems,
+    partners,
+    topSettlements,
   ] = await Promise.all([
-    prisma.financialTransaction.findMany({
-      orderBy: { transactionDate: "asc" },
+    // 1. Overall Income Sum (Pure SQL aggregation)
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
+      where: { type: TransactionType.INCOME },
     }),
-    prisma.financialTransaction.findMany({
+    // 2. Overall Expense Sum
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
+      where: { type: TransactionType.EXPENSE },
+    }),
+    // 3. Monthly Expense Sum
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
       where: {
-        transactionDate: {
-          gte: startOfMonth,
-          lte: endOfMonth,
-        },
+        type: TransactionType.EXPENSE,
+        transactionDate: { gte: startOfMonth, lte: endOfMonth },
       },
     }),
-    prisma.hotspotPartner.findMany({
-      include: {
-        stocks: {
-          include: { package: true },
-        },
-        customPricings: true,
+    // 4. Monthly Income grouped by Category
+    prisma.financialTransaction.groupBy({
+      by: ["category"],
+      _sum: { amount: true },
+      where: {
+        type: TransactionType.INCOME,
+        transactionDate: { gte: startOfMonth, lte: endOfMonth },
       },
     }),
-    prisma.voucherPackage.findMany(),
-    prisma.inventoryDevice.findMany(),
+    // 5. All-Time Income grouped by Category (for Chart 2 composition)
+    prisma.financialTransaction.groupBy({
+      by: ["category"],
+      _sum: { amount: true },
+      where: { type: TransactionType.INCOME },
+    }),
+    // 6. Only past 6-month transactions for trend (only necessary columns)
+    prisma.financialTransaction.findMany({
+      where: { transactionDate: { gte: sixMonthsAgo } },
+      select: {
+        amount: true,
+        type: true,
+        transactionDate: true,
+      },
+    }),
+    // 7. Inventory device count by status (Pure SQL group count)
+    prisma.inventoryDevice.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+    }),
+    // 8. Active customers count (Pure SQL count)
+    prisma.homeCustomer.count({
+      where: { status: CustomerStatus.ACTIVE },
+    }),
+    // 9. ODP capacity and occupied port selections
     prisma.odpNode.findMany({
-      include: {
+      select: {
+        splitterCapacity: true,
         homeCustomers: { select: { odpPort: true } },
         hotspotPartners: { select: { odpPort: true } },
+        childOdps: { select: { parentOdpPort: true } },
       },
     }),
-    prisma.homeCustomer.findMany({
-      select: { id: true, status: true },
-    }),
-    prisma.voucherSettlement.findMany({
-      include: {
-        partner: true,
+    // 10. Partners for stocks & unpaid balance (selective fields only)
+    prisma.hotspotPartner.findMany({
+      select: {
+        id: true,
+        name: true,
+        unpaidBalance: true,
+        stocks: {
+          select: {
+            packageId: true,
+            quantity: true,
+            package: { select: { defaultOwnerShare: true } },
+          },
+        },
+        customPricings: {
+          select: {
+            packageId: true,
+            customOwnerShare: true,
+          },
+        },
       },
+    }),
+    // 11. Top 5 partners by actual received revenue
+    prisma.voucherSettlement.groupBy({
+      by: ["partnerId"],
+      _sum: { actualReceived: true },
+      orderBy: {
+        _sum: { actualReceived: "desc" },
+      },
+      take: 5,
     }),
   ]);
 
   // Overall Kas Bersih
-  const totalIncomeAll = allTransactions
-    .filter((t) => t.type === TransactionType.INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalExpenseAll = allTransactions
-    .filter((t) => t.type === TransactionType.EXPENSE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
+  const totalIncomeAll = totalIncomeAgg._sum.amount || 0;
+  const totalExpenseAll = totalExpenseAgg._sum.amount || 0;
   const totalKasBersih = totalIncomeAll - totalExpenseAll;
 
   // Monthly Income & Breakdown
-  const pemasukanBulanIni = monthlyTransactions
-    .filter((t) => t.type === TransactionType.INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
+  const pengeluaranBulanIni = monthlyExpenseAgg._sum.amount || 0;
+  let incomeVoucherBulanIni = 0;
+  let incomeBulananBulanIni = 0;
+  let incomePasangBaruBulanIni = 0;
+  let incomeLainnyaBulanIni = 0;
+  let pemasukanBulanIni = 0;
 
-  const pengeluaranBulanIni = monthlyTransactions
-    .filter((t) => t.type === TransactionType.EXPENSE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomeVoucherBulanIni = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.VOUCHER_HOTSPOT)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomeBulananBulanIni = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.MONTHLY_BILLING)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomePasangBaruBulanIni = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.INSTALLATION_FEE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomeLainnyaBulanIni = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.OTHER_INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
+  for (const group of monthlyIncomeByCategory) {
+    const amt = group._sum.amount || 0;
+    pemasukanBulanIni += amt;
+    if (group.category === FinancialCategory.VOUCHER_HOTSPOT) incomeVoucherBulanIni = amt;
+    else if (group.category === FinancialCategory.MONTHLY_BILLING) incomeBulananBulanIni = amt;
+    else if (group.category === FinancialCategory.INSTALLATION_FEE) incomePasangBaruBulanIni = amt;
+    else if (group.category === FinancialCategory.OTHER_INCOME) incomeLainnyaBulanIni = amt;
+  }
 
   // Total Piutang Warung (unpaidBalance)
   const totalUnpaidBalance = partners.reduce((sum, p) => sum + p.unpaidBalance, 0);
@@ -114,14 +159,23 @@ export async function getDashboardData() {
   }
 
   // Device Inventory Summary
-  const devicesInStock = devices.filter((d) => d.status === DeviceStatus.IN_STOCK).length;
-  const devicesDeployedHome = devices.filter((d) => d.status === DeviceStatus.DEPLOYED_HOME).length;
-  const devicesDeployedHotspot = devices.filter((d) => d.status === DeviceStatus.DEPLOYED_HOTSPOT).length;
-  const devicesDeployedTotal = devicesDeployedHome + devicesDeployedHotspot;
-  const devicesBroken = devices.filter((d) => d.status === DeviceStatus.BROKEN).length;
-  const totalDevices = devices.length;
+  let devicesInStock = 0;
+  let devicesDeployedHome = 0;
+  let devicesDeployedHotspot = 0;
+  let devicesBroken = 0;
+  let totalDevices = 0;
 
-  // ODP Ports Summary
+  for (const d of deviceStatusCounts) {
+    const cnt = d._count._all;
+    totalDevices += cnt;
+    if (d.status === DeviceStatus.IN_STOCK) devicesInStock = cnt;
+    else if (d.status === DeviceStatus.DEPLOYED_HOME) devicesDeployedHome = cnt;
+    else if (d.status === DeviceStatus.DEPLOYED_HOTSPOT) devicesDeployedHotspot = cnt;
+    else if (d.status === DeviceStatus.BROKEN) devicesBroken = cnt;
+  }
+  const devicesDeployedTotal = devicesDeployedHome + devicesDeployedHotspot;
+
+  // ODP Ports Summary (includes cascading child splitters)
   let totalOdpCapacity = 0;
   let occupiedOdpPorts = 0;
   for (const odp of odpNodes) {
@@ -129,6 +183,7 @@ export async function getDashboardData() {
     const occupiedPortsSet = new Set<number>();
     odp.homeCustomers.forEach((c) => c.odpPort && occupiedPortsSet.add(c.odpPort));
     odp.hotspotPartners.forEach((hp) => hp.odpPort && occupiedPortsSet.add(hp.odpPort));
+    odp.childOdps.forEach((co) => co.parentOdpPort && occupiedPortsSet.add(co.parentOdpPort));
     occupiedOdpPorts += occupiedPortsSet.size;
   }
   const sisaPortOdp = Math.max(0, totalOdpCapacity - occupiedOdpPorts);
@@ -143,7 +198,7 @@ export async function getDashboardData() {
     const m = d.getMonth() + 1;
     const label = d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" });
 
-    const txInMonth = allTransactions.filter((tx) => {
+    const txInMonth = trendTransactions.filter((tx) => {
       const txDate = new Date(tx.transactionDate);
       return txDate.getFullYear() === y && txDate.getMonth() + 1 === m;
     });
@@ -165,45 +220,31 @@ export async function getDashboardData() {
   }
 
   // -------------------------------------------------------------
-  // CHART 2: Income Composition (All-time or Past 90 Days)
+  // CHART 2: Income Composition (All-time)
   // -------------------------------------------------------------
-  const totalVoucherAll = allTransactions
-    .filter((t) => t.category === FinancialCategory.VOUCHER_HOTSPOT)
-    .reduce((sum, t) => sum + t.amount, 0);
+  let totalVoucherAll = 0;
+  let totalCustomerAll = 0;
+  let totalInstallationAll = 0;
+  let totalOtherAll = 0;
 
-  const totalCustomerAll = allTransactions
-    .filter((t) => t.category === FinancialCategory.MONTHLY_BILLING)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalInstallationAll = allTransactions
-    .filter((t) => t.category === FinancialCategory.INSTALLATION_FEE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalOtherAll = allTransactions
-    .filter((t) => t.category === FinancialCategory.OTHER_INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
+  for (const group of allTimeIncomeByCategory) {
+    const amt = group._sum.amount || 0;
+    if (group.category === FinancialCategory.VOUCHER_HOTSPOT) totalVoucherAll = amt;
+    else if (group.category === FinancialCategory.MONTHLY_BILLING) totalCustomerAll = amt;
+    else if (group.category === FinancialCategory.INSTALLATION_FEE) totalInstallationAll = amt;
+    else if (group.category === FinancialCategory.OTHER_INCOME) totalOtherAll = amt;
+  }
 
   // -------------------------------------------------------------
   // CHART 3: Top 5 Titik Hotspot / Warung
   // -------------------------------------------------------------
-  const partnerSettlementMap = new Map<string, { name: string; totalRevenue: number }>();
-  partners.forEach((p) => {
-    partnerSettlementMap.set(p.id, { name: p.name, totalRevenue: 0 });
-  });
-
-  allTransactions
-    .filter((tx) => tx.category === FinancialCategory.VOUCHER_HOTSPOT && tx.settlementId)
-    .forEach((tx) => {
-      const settlement = settlementItems.find((s) => s.id === tx.settlementId);
-      if (settlement && partnerSettlementMap.has(settlement.partnerId)) {
-        const item = partnerSettlementMap.get(settlement.partnerId)!;
-        item.totalRevenue += tx.amount;
-      }
-    });
-
-  const topPartners = Array.from(partnerSettlementMap.values())
-    .sort((a, b) => b.totalRevenue - a.totalRevenue)
-    .slice(0, 5);
+  const partnerNameMap = new Map(partners.map((p) => [p.id, p.name]));
+  const topPartners = topSettlements
+    .map((s) => ({
+      name: partnerNameMap.get(s.partnerId) || "Mitra Warung",
+      totalRevenue: s._sum.actualReceived || 0,
+    }))
+    .filter((p) => p.totalRevenue > 0);
 
   return {
     kpis: {
@@ -228,7 +269,7 @@ export async function getDashboardData() {
       totalOdpCapacity,
       occupiedOdpPorts,
       sisaPortOdp,
-      activeCustomersCount: homeCustomers.filter((c) => c.status === "ACTIVE").length,
+      activeCustomersCount,
       totalPartnersCount: partners.length,
     },
     cashflowTrend: monthsTrend,

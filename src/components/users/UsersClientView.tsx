@@ -6,9 +6,12 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatDateIndo } from "@/lib/utils";
 import { toggleUserStatus, deleteUser } from "@/actions/user-actions";
-import AddUserModal from "./AddUserModal";
-import EditUserModal from "./EditUserModal";
-import ConfirmDialog, { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+import dynamic from "next/dynamic";
+import type { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+
+const AddUserModal = dynamic(() => import("./AddUserModal"), { ssr: false });
+const EditUserModal = dynamic(() => import("./EditUserModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("@/components/ui/ConfirmDialog"), { ssr: false });
 import {
   Users,
   UserPlus,

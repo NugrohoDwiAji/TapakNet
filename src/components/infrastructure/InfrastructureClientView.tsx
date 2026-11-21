@@ -12,22 +12,25 @@ import {
   deleteIspProvider,
 } from "@/actions/infrastructure-actions";
 import OdpPortVisualizer from "./OdpPortVisualizer";
-import AddOltModal from "./AddOltModal";
-import EditOltModal from "./EditOltModal";
-import OltDetailModal from "./OltDetailModal";
-import AddOdpModal from "./AddOdpModal";
-import EditOdpModal from "./EditOdpModal";
-import OdpDetailModal from "./OdpDetailModal";
-import AddRouterModal from "./AddRouterModal";
-import EditRouterModal from "./EditRouterModal";
-import RouterDetailModal from "./RouterDetailModal";
-import AddIspModal from "./AddIspModal";
-import EditIspModal from "./EditIspModal";
-import IspDetailModal from "./IspDetailModal";
-import AddDeviceModal from "./AddDeviceModal";
-import EditDeviceModal from "./EditDeviceModal";
-import DeviceDetailModal from "./DeviceDetailModal";
-import ConfirmDialog, { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+import dynamic from "next/dynamic";
+import type { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+
+const AddOltModal = dynamic(() => import("./AddOltModal"), { ssr: false });
+const EditOltModal = dynamic(() => import("./EditOltModal"), { ssr: false });
+const OltDetailModal = dynamic(() => import("./OltDetailModal"), { ssr: false });
+const AddOdpModal = dynamic(() => import("./AddOdpModal"), { ssr: false });
+const EditOdpModal = dynamic(() => import("./EditOdpModal"), { ssr: false });
+const OdpDetailModal = dynamic(() => import("./OdpDetailModal"), { ssr: false });
+const AddRouterModal = dynamic(() => import("./AddRouterModal"), { ssr: false });
+const EditRouterModal = dynamic(() => import("./EditRouterModal"), { ssr: false });
+const RouterDetailModal = dynamic(() => import("./RouterDetailModal"), { ssr: false });
+const AddIspModal = dynamic(() => import("./AddIspModal"), { ssr: false });
+const EditIspModal = dynamic(() => import("./EditIspModal"), { ssr: false });
+const IspDetailModal = dynamic(() => import("./IspDetailModal"), { ssr: false });
+const AddDeviceModal = dynamic(() => import("./AddDeviceModal"), { ssr: false });
+const EditDeviceModal = dynamic(() => import("./EditDeviceModal"), { ssr: false });
+const DeviceDetailModal = dynamic(() => import("./DeviceDetailModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("@/components/ui/ConfirmDialog"), { ssr: false });
 import {
   Network,
   Radio,

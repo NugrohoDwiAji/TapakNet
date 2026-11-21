@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { formatRupiah, formatDateIndo } from "@/lib/utils";
 import { deleteFinancialTransaction } from "@/actions/finance-actions";
-import AddTransactionModal from "./AddTransactionModal";
-import ConfirmDialog, { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+import dynamic from "next/dynamic";
+import type { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+
+const AddTransactionModal = dynamic(() => import("./AddTransactionModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("@/components/ui/ConfirmDialog"), { ssr: false });
 import {
   Wallet,
   ArrowUpRight,

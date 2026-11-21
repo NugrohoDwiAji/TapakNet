@@ -9,6 +9,7 @@ export async function getFinancialTransactions(filters?: {
   endDate?: string;
   type?: TransactionType;
   category?: FinancialCategory;
+  limit?: number;
 }) {
   const where: any = {};
 
@@ -35,12 +36,23 @@ export async function getFinancialTransactions(filters?: {
   return await prisma.financialTransaction.findMany({
     where,
     orderBy: { transactionDate: "desc" },
+    take: filters?.limit || 200,
     include: {
       settlement: {
-        include: { partner: true },
+        select: {
+          id: true,
+          partner: {
+            select: { id: true, name: true },
+          },
+        },
       },
       invoice: {
-        include: { customer: true },
+        select: {
+          id: true,
+          customer: {
+            select: { id: true, name: true },
+          },
+        },
       },
     },
   });
@@ -86,49 +98,55 @@ export async function getFinanceSummary(year?: number, month?: number) {
   const startOfMonth = new Date(targetYear, targetMonth - 1, 1);
   const endOfMonth = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
 
-  const [allTransactions, monthlyTransactions] = await Promise.all([
-    prisma.financialTransaction.findMany(),
-    prisma.financialTransaction.findMany({
+  // Run SQL aggregations in parallel instead of fetching full transaction datasets
+  const [
+    totalIncomeAgg,
+    totalExpenseAgg,
+    monthlyExpenseAgg,
+    monthlyIncomeGroups,
+  ] = await Promise.all([
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
+      where: { type: TransactionType.INCOME },
+    }),
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
+      where: { type: TransactionType.EXPENSE },
+    }),
+    prisma.financialTransaction.aggregate({
+      _sum: { amount: true },
       where: {
-        transactionDate: {
-          gte: startOfMonth,
-          lte: endOfMonth,
-        },
+        type: TransactionType.EXPENSE,
+        transactionDate: { gte: startOfMonth, lte: endOfMonth },
+      },
+    }),
+    prisma.financialTransaction.groupBy({
+      by: ["category"],
+      _sum: { amount: true },
+      where: {
+        type: TransactionType.INCOME,
+        transactionDate: { gte: startOfMonth, lte: endOfMonth },
       },
     }),
   ]);
 
-  // Overall Kas Bersih
-  const totalIncomeAll = allTransactions
-    .filter((t) => t.type === TransactionType.INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalExpenseAll = allTransactions
-    .filter((t) => t.type === TransactionType.EXPENSE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
+  const totalIncomeAll = totalIncomeAgg._sum.amount || 0;
+  const totalExpenseAll = totalExpenseAgg._sum.amount || 0;
   const kasBersihTotal = totalIncomeAll - totalExpenseAll;
 
-  // Monthly Breakdown
-  const monthlyIncome = monthlyTransactions
-    .filter((t) => t.type === TransactionType.INCOME)
-    .reduce((sum, t) => sum + t.amount, 0);
+  const monthlyExpense = monthlyExpenseAgg._sum.amount || 0;
+  let monthlyIncome = 0;
+  let monthlyVoucher = 0;
+  let monthlyCustomer = 0;
+  let monthlyInstallation = 0;
 
-  const monthlyExpense = monthlyTransactions
-    .filter((t) => t.type === TransactionType.EXPENSE)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const monthlyVoucher = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.VOUCHER_HOTSPOT)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const monthlyCustomer = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.MONTHLY_BILLING)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const monthlyInstallation = monthlyTransactions
-    .filter((t) => t.category === FinancialCategory.INSTALLATION_FEE)
-    .reduce((sum, t) => sum + t.amount, 0);
+  for (const group of monthlyIncomeGroups) {
+    const amt = group._sum.amount || 0;
+    monthlyIncome += amt;
+    if (group.category === FinancialCategory.VOUCHER_HOTSPOT) monthlyVoucher = amt;
+    else if (group.category === FinancialCategory.MONTHLY_BILLING) monthlyCustomer = amt;
+    else if (group.category === FinancialCategory.INSTALLATION_FEE) monthlyInstallation = amt;
+  }
 
   return {
     kasBersihTotal,

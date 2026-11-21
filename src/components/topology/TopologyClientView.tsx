@@ -29,11 +29,26 @@ import {
   ExternalLink,
   Phone,
 } from "lucide-react";
-import TopologyDetailModal, {
-  TopologySelectedNode,
-} from "./TopologyDetailModal";
-import CiscoPacketTracerCanvas from "./CiscoPacketTracerCanvas";
+import dynamic from "next/dynamic";
+import type { TopologySelectedNode } from "./TopologyDetailModal";
 import { TopologySummary } from "@/actions/topology-actions";
+
+const CiscoPacketTracerCanvas = dynamic(
+  () => import("./CiscoPacketTracerCanvas"),
+  {
+    loading: () => (
+      <div className="w-full h-[650px] bg-slate-900 rounded-3xl flex flex-col items-center justify-center gap-3 text-slate-400">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs font-medium">Memuat Canvas Interaktif Jaringan...</span>
+      </div>
+    ),
+    ssr: false,
+  }
+);
+
+const TopologyDetailModal = dynamic(() => import("./TopologyDetailModal"), {
+  ssr: false,
+});
 
 interface TopologyClientViewProps {
   initialData: {

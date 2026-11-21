@@ -24,12 +24,26 @@ export async function getRouterDevices() {
   return await prisma.routerDevice.findMany({
     include: {
       oltDevices: {
-        include: {
-          odpNodes: true,
+        select: {
+          id: true,
+          name: true,
+          ponPortsCount: true,
         },
       },
-      ispProviders: true,
-      devices: true,
+      ispProviders: {
+        select: {
+          id: true,
+          name: true,
+          bandwidthMbps: true,
+        },
+      },
+      devices: {
+        select: {
+          id: true,
+          brandModel: true,
+          serialNumber: true,
+        },
+      },
     },
     orderBy: [{ isCoreGateway: "desc" }, { name: "asc" }],
   });
@@ -228,9 +242,27 @@ export async function deleteIspProvider(id: string) {
 export async function getOltDevices() {
   return await prisma.oltDevice.findMany({
     include: {
-      odpNodes: true,
-      devices: true,
-      router: true,
+      odpNodes: {
+        select: {
+          id: true,
+          code: true,
+          splitterCapacity: true,
+          ponPortNumber: true,
+        },
+      },
+      devices: {
+        select: {
+          id: true,
+          brandModel: true,
+          serialNumber: true,
+        },
+      },
+      router: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
     orderBy: { name: "asc" },
   });
@@ -610,13 +642,68 @@ export async function deleteOdpNode(id: string) {
 export async function getInventoryDevices() {
   return await prisma.inventoryDevice.findMany({
     include: {
-      homeCustomer: true,
-      hotspotPartner: true,
-      oltDevice: true,
-      odpNode: true,
-      routerDevice: true,
+      homeCustomer: {
+        select: { id: true, name: true, phone: true },
+      },
+      hotspotPartner: {
+        select: { id: true, name: true, phone: true },
+      },
+      oltDevice: {
+        select: { id: true, name: true, brandModel: true },
+      },
+      odpNode: {
+        select: { id: true, code: true },
+      },
+      routerDevice: {
+        select: { id: true, name: true, brandModel: true },
+      },
     },
     orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getAvailableDevices() {
+  return await prisma.inventoryDevice.findMany({
+    where: { status: DeviceStatus.IN_STOCK },
+    select: {
+      id: true,
+      category: true,
+      customCategory: true,
+      brandModel: true,
+      serialNumber: true,
+      status: true,
+      purchasePrice: true,
+    },
+    orderBy: { brandModel: "asc" },
+  });
+}
+
+export async function getOdpOptions() {
+  const odps = await prisma.odpNode.findMany({
+    select: {
+      id: true,
+      code: true,
+      splitterCapacity: true,
+      homeCustomers: { select: { odpPort: true } },
+      hotspotPartners: { select: { odpPort: true } },
+      childOdps: { select: { parentOdpPort: true } },
+    },
+    orderBy: { code: "asc" },
+  });
+
+  return odps.map((odp) => {
+    const occupied = new Set<number>();
+    odp.homeCustomers.forEach((c) => c.odpPort && occupied.add(c.odpPort));
+    odp.hotspotPartners.forEach((hp) => hp.odpPort && occupied.add(hp.odpPort));
+    odp.childOdps.forEach((co) => co.parentOdpPort && occupied.add(co.parentOdpPort));
+    const capacity = odp.splitterCapacity || 8;
+    return {
+      id: odp.id,
+      code: odp.code,
+      splitterCapacity: capacity,
+      occupiedCount: occupied.size,
+      freeCount: Math.max(0, capacity - occupied.size),
+    };
   });
 }
 

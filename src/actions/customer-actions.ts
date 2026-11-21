@@ -14,8 +14,22 @@ import {
 export async function getHomeCustomers(year: number = new Date().getFullYear()) {
   return await prisma.homeCustomer.findMany({
     include: {
-      odp: true,
-      devices: true,
+      odp: {
+        select: {
+          id: true,
+          code: true,
+          splitterCapacity: true,
+        },
+      },
+      devices: {
+        select: {
+          id: true,
+          brandModel: true,
+          serialNumber: true,
+          category: true,
+          status: true,
+        },
+      },
       invoices: {
         where: { year },
         orderBy: { month: "asc" },

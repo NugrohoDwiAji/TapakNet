@@ -1,6 +1,6 @@
 import { getDashboardData } from "@/actions/dashboard-actions";
 import { formatRupiah } from "@/lib/utils";
-import DashboardCharts from "@/components/dashboard/DashboardCharts";
+import DashboardCharts from "@/components/dashboard/DashboardChartsClient";
 import Link from "next/link";
 import {
   Wallet,

@@ -35,34 +35,78 @@ export async function getTopologyData() {
         prisma.oltDevice.findMany({
           orderBy: { name: "asc" },
           include: {
-            router: true,
+            router: {
+              select: { id: true, name: true, brandModel: true, ipAddress: true, siteLocation: true },
+            },
             odpNodes: {
               orderBy: [{ ponPortNumber: "asc" }, { code: "asc" }],
               include: {
-                parentOdp: true,
+                parentOdp: {
+                  select: { id: true, code: true },
+                },
                 childOdps: {
                   include: {
-                    parentOdp: true,
-                    childOdps: true,
+                    parentOdp: {
+                      select: { id: true, code: true },
+                    },
+                    childOdps: {
+                      select: { id: true, code: true, parentOdpPort: true },
+                    },
                     homeCustomers: {
-                      include: { devices: true },
+                      select: {
+                        id: true,
+                        name: true,
+                        phone: true,
+                        status: true,
+                        packageName: true,
+                        odpPort: true,
+                        signalDbm: true,
+                        devices: {
+                          select: { id: true, brandModel: true, serialNumber: true },
+                        },
+                      },
                       orderBy: { odpPort: "asc" },
                     },
                     hotspotPartners: {
-                      include: { devices: true },
+                      select: {
+                        id: true,
+                        name: true,
+                        ownerName: true,
+                        phone: true,
+                        odpPort: true,
+                        devices: {
+                          select: { id: true, brandModel: true, serialNumber: true },
+                        },
+                      },
                       orderBy: { odpPort: "asc" },
                     },
                   },
                 },
                 homeCustomers: {
-                  include: {
-                    devices: true,
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                    status: true,
+                    packageName: true,
+                    odpPort: true,
+                    signalDbm: true,
+                    devices: {
+                      select: { id: true, brandModel: true, serialNumber: true },
+                    },
                   },
                   orderBy: { odpPort: "asc" },
                 },
                 hotspotPartners: {
-                  include: {
-                    devices: true,
+                  select: {
+                    id: true,
+                    name: true,
+                    ownerName: true,
+                    phone: true,
+                    odpPort: true,
+                    devices: {
+                      select: { id: true, brandModel: true, serialNumber: true },
+                    },
                   },
                   orderBy: { odpPort: "asc" },
                 },
@@ -74,30 +118,72 @@ export async function getTopologyData() {
           where: { oltId: null },
           orderBy: { code: "asc" },
           include: {
-            parentOdp: true,
+            parentOdp: {
+              select: { id: true, code: true },
+            },
             childOdps: {
               include: {
-                parentOdp: true,
-                childOdps: true,
+                parentOdp: {
+                  select: { id: true, code: true },
+                },
+                childOdps: {
+                  select: { id: true, code: true, parentOdpPort: true },
+                },
                 homeCustomers: {
-                  include: { devices: true },
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                    status: true,
+                    packageName: true,
+                    odpPort: true,
+                    signalDbm: true,
+                    devices: {
+                      select: { id: true, brandModel: true, serialNumber: true },
+                    },
+                  },
                   orderBy: { odpPort: "asc" },
                 },
                 hotspotPartners: {
-                  include: { devices: true },
+                  select: {
+                    id: true,
+                    name: true,
+                    ownerName: true,
+                    phone: true,
+                    odpPort: true,
+                    devices: {
+                      select: { id: true, brandModel: true, serialNumber: true },
+                    },
+                  },
                   orderBy: { odpPort: "asc" },
                 },
               },
             },
             homeCustomers: {
-              include: {
-                devices: true,
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                status: true,
+                packageName: true,
+                odpPort: true,
+                signalDbm: true,
+                devices: {
+                  select: { id: true, brandModel: true, serialNumber: true },
+                },
               },
               orderBy: { odpPort: "asc" },
             },
             hotspotPartners: {
-              include: {
-                devices: true,
+              select: {
+                id: true,
+                name: true,
+                ownerName: true,
+                phone: true,
+                odpPort: true,
+                devices: {
+                  select: { id: true, brandModel: true, serialNumber: true },
+                },
               },
               orderBy: { odpPort: "asc" },
             },
@@ -106,15 +192,31 @@ export async function getTopologyData() {
         prisma.homeCustomer.findMany({
           where: { odpId: null },
           orderBy: { name: "asc" },
-          include: {
-            devices: true,
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            status: true,
+            packageName: true,
+            odpPort: true,
+            signalDbm: true,
+            devices: {
+              select: { id: true, brandModel: true, serialNumber: true },
+            },
           },
         }),
         prisma.hotspotPartner.findMany({
           where: { odpId: null },
           orderBy: { name: "asc" },
-          include: {
-            devices: true,
+          select: {
+            id: true,
+            name: true,
+            ownerName: true,
+            phone: true,
+            odpPort: true,
+            devices: {
+              select: { id: true, brandModel: true, serialNumber: true },
+            },
           },
         }),
       ]);

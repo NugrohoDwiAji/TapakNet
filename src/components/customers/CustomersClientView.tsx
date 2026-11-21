@@ -12,11 +12,14 @@ import {
   unpayInvoice,
   toggleHomeCustomerStatus,
 } from "@/actions/customer-actions";
-import PayInvoiceModal from "./PayInvoiceModal";
-import AddCustomerModal from "./AddCustomerModal";
-import EditCustomerModal from "./EditCustomerModal";
-import CustomerDetailModal from "./CustomerDetailModal";
-import ConfirmDialog, { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+import dynamic from "next/dynamic";
+import type { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+
+const PayInvoiceModal = dynamic(() => import("./PayInvoiceModal"), { ssr: false });
+const AddCustomerModal = dynamic(() => import("./AddCustomerModal"), { ssr: false });
+const EditCustomerModal = dynamic(() => import("./EditCustomerModal"), { ssr: false });
+const CustomerDetailModal = dynamic(() => import("./CustomerDetailModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("@/components/ui/ConfirmDialog"), { ssr: false });
 import {
   Users,
   UserPlus,

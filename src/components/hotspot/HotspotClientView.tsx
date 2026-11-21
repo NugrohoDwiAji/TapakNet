@@ -8,15 +8,18 @@ import {
   createVoucherPackage,
   updateVoucherPackage,
 } from "@/actions/voucher-actions";
-import DropVoucherModal from "./DropVoucherModal";
-import SettlementModal from "./SettlementModal";
-import PayUnpaidBalanceModal from "./PayUnpaidBalanceModal";
-import AddPartnerModal from "./AddPartnerModal";
-import PackageSettingsModal from "./PackageSettingsModal";
-import EditPartnerModal from "./EditPartnerModal";
-import PartnerDetailModal from "./PartnerDetailModal";
-import EditPackageModal from "./EditPackageModal";
-import ConfirmDialog, { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+import dynamic from "next/dynamic";
+import type { ConfirmVariant } from "@/components/ui/ConfirmDialog";
+
+const DropVoucherModal = dynamic(() => import("./DropVoucherModal"), { ssr: false });
+const SettlementModal = dynamic(() => import("./SettlementModal"), { ssr: false });
+const PayUnpaidBalanceModal = dynamic(() => import("./PayUnpaidBalanceModal"), { ssr: false });
+const AddPartnerModal = dynamic(() => import("./AddPartnerModal"), { ssr: false });
+const PackageSettingsModal = dynamic(() => import("./PackageSettingsModal"), { ssr: false });
+const EditPartnerModal = dynamic(() => import("./EditPartnerModal"), { ssr: false });
+const PartnerDetailModal = dynamic(() => import("./PartnerDetailModal"), { ssr: false });
+const EditPackageModal = dynamic(() => import("./EditPackageModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("@/components/ui/ConfirmDialog"), { ssr: false });
 import {
   Wifi,
   Store,

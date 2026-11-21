@@ -262,6 +262,7 @@ model CustomerInvoice {
   @@unique([customerId, year, month])
   @@index([status])
   @@index([year, month])
+  @@index([year, month, status])
 }
 
 // -------------------------------------------------------------
@@ -375,6 +376,7 @@ model InventoryDevice {
 
   @@index([status])
   @@index([category])
+  @@index([status, category])
   @@index([homeCustomerId])
   @@index([hotspotPartnerId])
   @@index([oltDeviceId])
@@ -408,6 +410,8 @@ model FinancialTransaction {
   @@index([type])
   @@index([category])
   @@index([transactionDate])
+  @@index([type, transactionDate])
+  @@index([category, transactionDate])
 }
 
 // -------------------------------------------------------------
